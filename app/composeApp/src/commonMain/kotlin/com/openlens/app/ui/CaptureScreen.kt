@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -39,11 +40,23 @@ import androidx.compose.ui.unit.sp
 import com.openlens.app.camera.CameraPreview
 import com.openlens.app.camera.rememberCameraController
 import com.openlens.app.ui.theme.OpenLensColors
+import kotlinx.coroutines.delay
 
 /** Home: full-bleed camera with a cyan shutter. Tapping it captures a frame. */
 @Composable
 fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
     val controller = rememberCameraController()
+
+    // Guards against firing overlapping captures (rapid taps) and gives feedback when the camera
+    // hands back nothing — e.g. a tap while it's still warming up.
+    var capturing by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(error) {
+        if (error != null) {
+            delay(2500)
+            error = null
+        }
+    }
 
     Box(Modifier.fillMaxSize().background(OpenLensColors.Bg)) {
         CameraPreview(controller, Modifier.fillMaxSize())
@@ -65,8 +78,25 @@ fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
                 .padding(bottom = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            error?.let { message ->
+                Text(
+                    text = message,
+                    color = OpenLensColors.TextLo,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(bottom = 14.dp),
+                )
+            }
             ShutterButton(
-                onClick = { controller.takePicture { bytes -> if (bytes != null) onCaptured(bytes) } },
+                enabled = !capturing,
+                onClick = {
+                    capturing = true
+                    error = null
+                    controller.takePicture { bytes ->
+                        capturing = false
+                        if (bytes != null) onCaptured(bytes)
+                        else error = "Couldn't capture — try again"
+                    }
+                },
             )
         }
     }
@@ -74,10 +104,11 @@ fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
 
 /**
  * Cyan shutter that reacts to the tap: it scales down while pressed (springing back on release),
- * and fires a one-shot ring "ping" outward on each capture as confirmation.
+ * and fires a one-shot ring "ping" outward on each capture as confirmation. Dims and stops
+ * responding while a capture is already in flight.
  */
 @Composable
-private fun ShutterButton(onClick: () -> Unit) {
+private fun ShutterButton(enabled: Boolean = true, onClick: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -87,6 +118,10 @@ private fun ShutterButton(onClick: () -> Unit) {
             stiffness = Spring.StiffnessMediumLow,
         ),
         label = "shutterScale",
+    )
+    val dim by animateFloatAsState(
+        targetValue = if (enabled) 1f else 0.5f,
+        label = "shutterDim",
     )
 
     // Bumped on every capture; each bump replays the expanding/fading ring.
@@ -118,6 +153,7 @@ private fun ShutterButton(onClick: () -> Unit) {
             modifier = Modifier
                 .size(74.dp)
                 .scale(scale)
+                .alpha(dim)
                 .border(width = 3.dp, color = OpenLensColors.Accent, shape = CircleShape)
                 .padding(7.dp)
                 .clip(CircleShape)
@@ -125,6 +161,7 @@ private fun ShutterButton(onClick: () -> Unit) {
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
+                    enabled = enabled,
                     onClick = {
                         pingKey++
                         onClick()
