@@ -14,6 +14,7 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,6 +30,7 @@ import java.util.concurrent.Executor
 actual class CameraController {
     internal var imageCapture: ImageCapture? = null
     internal var executor: Executor? = null
+    internal var cameraProvider: ProcessCameraProvider? = null
 
     actual fun takePicture(onResult: (ByteArray?) -> Unit) {
         val capture = imageCapture
@@ -75,6 +77,12 @@ actual fun CameraPreview(controller: CameraController, modifier: Modifier) {
         if (!hasPermission) launcher.launch(Manifest.permission.CAMERA)
     }
 
+    // Release the camera when the capture screen leaves composition, so it isn't left running
+    // in the background while scanning / viewing the result.
+    DisposableEffect(Unit) {
+        onDispose { controller.cameraProvider?.unbindAll() }
+    }
+
     Box(modifier) {
         if (hasPermission) {
             AndroidView(
@@ -95,6 +103,7 @@ actual fun CameraPreview(controller: CameraController, modifier: Modifier) {
                             .build()
                         controller.imageCapture = imageCapture
                         controller.executor = ContextCompat.getMainExecutor(ctx)
+                        controller.cameraProvider = provider
                         try {
                             provider.unbindAll()
                             provider.bindToLifecycle(

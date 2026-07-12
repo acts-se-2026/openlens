@@ -1,6 +1,7 @@
 package com.openlens.app.camera
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -50,6 +51,13 @@ actual class CameraController {
             if (session.canAddOutput(photoOutput)) session.addOutput(photoOutput)
             session.commitConfiguration()
             session.startRunning()
+        }
+    }
+
+    /** Stop the capture session (off the main thread) so the camera is released when we leave. */
+    internal fun stopSession() {
+        dispatch_async(dispatch_get_global_queue(0L, 0uL)) {
+            if (session.running) session.stopRunning()
         }
     }
 
@@ -107,6 +115,11 @@ actual fun CameraPreview(controller: CameraController, modifier: Modifier) {
         AVCaptureDevice.requestAccessForMediaType(AVMediaTypeVideo) { granted ->
             if (granted) controller.configure()
         }
+    }
+
+    // Stop the camera when the capture screen leaves composition.
+    DisposableEffect(Unit) {
+        onDispose { controller.stopSession() }
     }
 
     UIKitView(
