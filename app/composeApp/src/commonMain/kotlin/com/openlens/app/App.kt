@@ -35,7 +35,7 @@ fun App() {
                     CaptureScreen(onCaptured = { bytes -> screen = Screen.Scanning(bytes) })
 
                 is Screen.Scanning -> {
-                    ScanningScreen()
+                    ScanningScreen(bytes = current.bytes)
                     LaunchedEffect(current) {
                         val result = repository.identify(current.bytes)
                         screen = Screen.Result(current.bytes, result)
