@@ -1,0 +1,12 @@
+.gradle/
+build/
+local.properties
+.idea/
+.DS_Store
+*.hprof
+
+# Xcode
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.build/
