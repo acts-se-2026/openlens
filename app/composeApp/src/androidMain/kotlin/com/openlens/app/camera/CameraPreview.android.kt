@@ -48,6 +48,9 @@ actual fun CameraPreview(modifier: Modifier) {
                 factory = { ctx ->
                     val previewView = PreviewView(ctx).apply {
                         scaleType = PreviewView.ScaleType.FILL_CENTER
+                        // TextureView-backed: renders in the view hierarchy so it composites
+                        // cleanly under Compose overlays (and is capturable by screencap).
+                        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
                     }
                     val providerFuture = ProcessCameraProvider.getInstance(ctx)
                     providerFuture.addListener({
