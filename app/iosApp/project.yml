@@ -19,6 +19,7 @@ targets:
       path: iosApp/Info.plist
       properties:
         UILaunchScreen: {}
+        NSCameraUsageDescription: OpenLens uses the camera to identify what you point it at.
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
     settings:
