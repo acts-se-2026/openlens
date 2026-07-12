@@ -21,15 +21,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openlens.app.camera.CameraPreview
+import com.openlens.app.camera.rememberCameraController
 import com.openlens.app.ui.theme.OpenLensColors
 
-/** Home: full-bleed camera with a cyan shutter. No mode chips (lean MVP). */
+/** Home: full-bleed camera with a cyan shutter. Tapping it captures a frame. */
 @Composable
-fun CaptureScreen(onCapture: () -> Unit = {}) {
-    Box(Modifier.fillMaxSize().background(OpenLensColors.Bg)) {
-        CameraPreview(Modifier.fillMaxSize())
+fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
+    val controller = rememberCameraController()
 
-        // Top chrome — quiet wordmark, respects the status bar inset.
+    Box(Modifier.fillMaxSize().background(OpenLensColors.Bg)) {
+        CameraPreview(controller, Modifier.fillMaxSize())
+
         Text(
             text = "OpenLens",
             color = OpenLensColors.TextHi,
@@ -40,7 +42,6 @@ fun CaptureScreen(onCapture: () -> Unit = {}) {
                 .padding(top = 16.dp),
         )
 
-        // Bottom chrome — shutter, respects the navigation-bar / home-indicator inset.
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -48,14 +49,15 @@ fun CaptureScreen(onCapture: () -> Unit = {}) {
                 .padding(bottom = 36.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            ShutterButton(onClick = onCapture)
+            ShutterButton(
+                onClick = { controller.takePicture { bytes -> if (bytes != null) onCaptured(bytes) } },
+            )
         }
     }
 }
 
 @Composable
 private fun ShutterButton(onClick: () -> Unit) {
-    // Cyan ring with a solid inner disc — classic shutter, one-accent.
     Box(
         modifier = Modifier
             .size(74.dp)

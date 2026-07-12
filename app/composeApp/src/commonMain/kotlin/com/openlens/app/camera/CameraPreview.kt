@@ -4,8 +4,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
 /**
- * Live camera preview, implemented per-platform (CameraX on Android, AVFoundation on iOS)
- * and composed under the shared Compose UI. Spike: prove the interop renders on both platforms.
+ * Owns the platform capture pipeline (CameraX ImageCapture / AVCapturePhotoOutput).
+ * [CameraPreview] binds the live preview to it; [takePicture] grabs a still frame as encoded bytes.
  */
+expect class CameraController {
+    fun takePicture(onResult: (ByteArray?) -> Unit)
+}
+
 @Composable
-expect fun CameraPreview(modifier: Modifier = Modifier)
+expect fun rememberCameraController(): CameraController
+
+@Composable
+expect fun CameraPreview(controller: CameraController, modifier: Modifier = Modifier)
