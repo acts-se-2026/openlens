@@ -3,9 +3,9 @@ import base64
 import mimetypes
 import requests
 
-API_KEY = "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"
+API_KEY = "key"
 
-IMAGE_PATH = r"D:\Stuff\Ostalo\pics\442020494_6958112794291356_6879111866039051768_n.jpg"
+IMAGE_PATH = "path"
 
 MODEL = "openai/gpt-4.1-mini"
 
