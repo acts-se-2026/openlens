@@ -1,0 +1,110 @@
+PROMPT EVALUATION
+
+
+THE PROMPT I CHOSE
+
+Identify the main subject of the image and describe it in one concise, factual paragraph of 2–3 sentences. Include distinctive colors, materials, shapes, context, and any readable text that would help a visual search engine find similar objects or scenes. Avoid decorative language, unsupported assumptions, and phrases such as “The image shows.” Express uncertain identifications cautiously using words such as “likely,” “possibly,” or “appears to be.”
+
+
+HAVE I TRIED OTHER PROMPTS?
+
+Yes, I tried a few different types of prompts before choosing this one. At first, I used a very simple prompt:
+
+Describe this image in detail.
+
+The answers were understandable, but they were not always consistent. Sometimes the model wrote too much, talked about details that were not important, or used subjective language.
+
+After that, I tried a shorter prompt:
+
+Identify the main object in the image and describe it briefly.
+
+This made the answers shorter, but sometimes they were too basic. The model could identify the object but leave out useful information like its color, material, shape, background, or visible text.
+
+I also tried a more search-focused prompt:
+
+Describe the main subject, including its color, shape, material, context, and any visible text.
+
+This version gave better details, but the length was still different from one answer to another. The model also sounded too confident when an image was blurry or unclear.
+
+The final prompt is a combination of the best parts of these tests. It tells the model what information is important, how long the answer should be, and what to do when it is not completely sure.
+
+
+WHY DO I THINK THIS IS THE BEST PROMPT?
+
+I think this prompt is the best one for OpenLens because the goal is not only to create a normal image caption. The description should contain enough useful information to help a visual search engine find similar images or objects.
+
+The prompt asks the model to include:
+
+- the main subject of the image;
+- important colors;
+- materials and shapes;
+- the context or background;
+- readable text, labels, or logos;
+- only two or three sentences;
+- careful words when the model is unsure.
+
+These instructions make the answers more useful and easier to compare. The model focuses on the most important object instead of describing every small detail in the background.
+
+I also asked it to avoid phrases like “The image shows.” This helps the answer start directly with useful information and makes it sound less repetitive.
+
+Another important part is the uncertainty rule. If the model cannot clearly identify an object, material, place, or animal, it should use words like “likely,” “possibly,” or “appears to be.” This does not remove every mistake, but it can reduce confident answers that are not supported by the image.
+
+
+WHAT QUALITY DOES THIS PROMPT ACHIEVE?
+
+I tested the prompt on 16 different images. The dataset included objects, animals, furniture, indoor rooms, outdoor scenes, a traffic sign, images with text, and a blurry city image.
+
+I also used the same prompt with 10 vision models. In total, the test produced 160 responses, and all API requests were completed successfully.
+
+Identifying the main subject
+
+Most models correctly identified the main object or scene. The prompt worked especially well for clear images such as chairs, mugs, apples, bicycles, laptops, and traffic signs.
+
+Useful visual details
+
+Most answers included several useful details about color, material, shape, texture, position, and background. This made the answers more useful than a basic caption such as “a chair” or “a laptop on a desk.”
+
+Reading text
+
+The models often included readable text when it was clear enough. For example, they recognized the words “SLOW DOWN” on the traffic sign and some menu labels displayed on the laptop screen.
+
+Small or blurry text was more difficult. Some models read it incorrectly, so the quality of text recognition still depends on the model and the image quality.
+
+Answer length
+
+Most answers followed the requested length of two or three sentences. The stronger models usually produced around 50 to 70 words, which was enough to give useful details without making the response too long.
+
+Mistakes and uncertainty
+
+The prompt helped the models use more careful language when something was unclear. However, it did not remove all mistakes. Some smaller models still confused objects, guessed the wrong text, or added details that were not actually visible.
+
+This shows that the prompt is important, but the selected model also has a big effect on the final quality.
+
+
+BEST MODEL RESULT
+
+After comparing the results, GPT-5.5 gave the best overall answers. Its descriptions were usually accurate, concise, and detailed. It also followed the style of the prompt better than most of the other models.
+
+Gemini 3 Flash was also very good and was faster than GPT-5.5. Gemini 3.1 Flash Lite was the best option when speed and lower cost were more important.
+
+
+LIMITATIONS OF MY EVALUATION
+
+The current dataset only contains 16 images, so this is an initial evaluation and not a final scientific benchmark. I reviewed the answers based on correctness, useful details, length, visible text, unsupported information, and response time.
+
+For a more reliable evaluation, I would use a larger dataset and give every response a score for:
+
+1. correct identification of the main subject;
+2. correct colors, materials, and shapes;
+3. correct visible text;
+4. no invented details;
+5. correct answer length;
+6. usefulness for visual search;
+7. response time and API cost.
+
+
+CONCLUSION
+
+I chose this prompt because it gave the most balanced results. It creates descriptions that are short, factual, and detailed enough for visual search. Compared with the simpler prompts, it gives clearer instructions and produces more consistent answers.
+
+The prompt performs well on the current dataset, especially when it is used with a strong vision model like GPT-5.5. It is not perfect, but it is the best version I tested for the current goal of OpenLens.
