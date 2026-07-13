@@ -2,3 +2,8 @@
 
 # Local planning notes
 planning/
+
+.env
+# Python venv
+.venv/
+__pycache__/

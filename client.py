@@ -1,8 +1,14 @@
 import base64
-import requests
+import os
 
-API_KEY = "key"
-MODEL = "openai/gpt-4.1-mini" #gemini 3.5 flash can work
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+API_KEY = os.getenv("OPENROUTER_API_KEY")
+MODEL = "openai/gpt-4.1-mini"  # gemini 3.5 flash can work
+
 
 def analyze_image(image_bytes):
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
