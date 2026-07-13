@@ -20,7 +20,13 @@ def analyze_image(image_bytes):
                 "content": [
                     {
                         "type": "text",
-                        "text": "Analyze this image and describe it in detail."
+                        "text": "Return the answer using exactly two XML tags: <heading> and <description>."
+                        "Inside <heading>, write a short and specific title of 2-6 words that clearly identifies what is visible in the image. "
+                        "Inside <description>, identify the main subject and describe it in one concise, factual paragraph of 2-3 sentences. "
+                        "Include distinctive colors, materials, shapes, context, and any readable text that would help a visual search engine find similar objects or scenes. "
+                        "Avoid decorative language, unsupported assumptions, and phrases such as 'The image shows. "
+                        "Express uncertain identifications cautiously using words such as 'likely,' 'possibly,' or 'appears to be. "
+                        "Use this exact output format: <heading>Specific image title</heading><description>Concise factual description.</description>"
                     },
                     {
                         "type": "image_url",
