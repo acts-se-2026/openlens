@@ -1,5 +1,6 @@
 import base64
 import os
+import re
 
 import requests
 from dotenv import load_dotenv
@@ -50,6 +51,13 @@ def analyze_image(image_bytes):
     )
 
     response.raise_for_status()
-    result = response.json()
+    content = response.json()["choices"][0]["message"]["content"]
 
-    return result["choices"][0]["message"]["content"]
+    # server.py reads result["heading"] and result["body"], so pull them out of the
+    # model's <heading>/<description> tags. Fall back to the raw text if a tag is missing.
+    heading = re.search(r"<heading>(.*?)</heading>", content, re.DOTALL)
+    description = re.search(r"<description>(.*?)</description>", content, re.DOTALL)
+    return {
+        "heading": heading.group(1).strip() if heading else "Result",
+        "body": description.group(1).strip() if description else content.strip(),
+    }
