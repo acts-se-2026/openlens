@@ -13,7 +13,7 @@
 
  - server:app refers to the app FastAPI instance in server.py
 
- - ## Vision Model
+## Vision Model
 
 The vision model receives an image and generates a heading and a short factual description.
 
