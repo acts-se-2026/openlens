@@ -13,14 +13,14 @@
 
  - server:app refers to the app FastAPI instance in server.py
 
-## Vision Model
+# Vision Model
 
 The application uses:
 
-- `openai/gpt-5.5`
+- `google/gemini-3-flash-preview`
 - OpenRouter API
 
-GPT-5.5 was selected after testing multiple vision models. It produced the most accurate and consistent image descriptions.
+Gemini 3 Flash was selected because it provides the best balance between image-description quality, response time and cost.
 
 Evaluation results are available in:
 
@@ -28,13 +28,13 @@ Evaluation results are available in:
 Model/ModelEvaluation
 ```
 
-## Final Prompt
+# Final Prompt
 
 The prompt asks the model to generate:
 
 - A short heading identifying the image
 - A factual description of 2–3 sentences
-- Details such as colors, materials, shapes and visible text
+- Relevant visual details and readable text
 - The response inside `<heading>` and `<description>` tags
 
 Example output:
