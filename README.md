@@ -1,1 +1,0 @@
-# OpenLens - Google Lens Clone
