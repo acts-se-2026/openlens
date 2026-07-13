@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = "openai/gpt-4.1-mini"  # gemini 3.5 flash can work
+MODEL = "google/gemini-3-flash-preview"
 
 
 def analyze_image(image_bytes):
