@@ -9,7 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import com.openlens.app.scan.FakeScanRepository
+import com.openlens.app.scan.RemoteScanRepository
 import com.openlens.app.scan.ScanResult
 import com.openlens.app.ui.CaptureScreen
 import com.openlens.app.ui.ResultScreen
@@ -27,7 +27,7 @@ private sealed interface Screen {
 fun App() {
     OpenLensTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = OpenLensColors.Bg) {
-            val repository = remember { FakeScanRepository() }
+            val repository = remember { RemoteScanRepository() }
             var screen: Screen by remember { mutableStateOf(Screen.Capture) }
 
             when (val current = screen) {
@@ -37,7 +37,15 @@ fun App() {
                 is Screen.Scanning -> {
                     ScanningScreen(bytes = current.bytes)
                     LaunchedEffect(current) {
-                        val result = repository.identify(current.bytes)
+                        val result = try {
+                            repository.identify(current.bytes)
+                        } catch (e: Exception) {
+                            // Show the failure on the result sheet instead of crashing the app.
+                            ScanResult(
+                                label = "Couldn't reach the server",
+                                detail = e.message ?: "Unknown error",
+                            )
+                        }
                         screen = Screen.Result(current.bytes, result)
                     }
                 }
