@@ -2,7 +2,7 @@ import base64
 import requests
 
 API_KEY = "key"
-MODEL = "openai/gpt-4.1-mini" #gemini 3.5 flash
+MODEL = "openai/gpt-4.1-mini" #gemini 3.5 flash can work
 
 def analyze_image(image_bytes):
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")

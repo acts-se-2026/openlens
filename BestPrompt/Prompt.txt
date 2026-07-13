@@ -1,4 +1,0 @@
-Identify the main subject of the image and describe it in one concise, factual paragraph of 2–3 sentences.
-Include distinctive colors, materials, shapes, context, and any readable text that would help a visual search engine find similar objects or scenes. 
-Avoid decorative language, unsupported assumptions, and phrases such as “The image shows.” 
-Express uncertain identifications cautiously using words such as “likely,” “possibly,” or “appears to be.”
