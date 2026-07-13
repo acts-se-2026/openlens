@@ -15,26 +15,37 @@
 
 ## Vision Model
 
-The vision model receives an image and generates a heading and a short factual description.
-
-### Selected Model
-
-The selected model is:
+The application uses:
 
 - `openai/gpt-5.5`
-- Accessed through the OpenRouter API
+- OpenRouter API
 
-The model was selected after testing multiple vision models on the same image dataset using the same prompt.
+GPT-5.5 was selected after testing multiple vision models. It produced the most accurate and consistent image descriptions.
 
-GPT-5.5 achieved the best overall result because it:
-
-- Identified the main subjects accurately
-- Included useful visual details
-- Followed the requested format consistently
-- Produced clear and factual descriptions
-- Avoided unnecessary or unsupported information
-
-The model evaluation files and results are available in:
+Evaluation results are available in:
 
 ```text
 Model/ModelEvaluation
+```
+
+## Final Prompt
+
+The prompt asks the model to generate:
+
+- A short heading identifying the image
+- A factual description of 2–3 sentences
+- Details such as colors, materials, shapes and visible text
+- The response inside `<heading>` and `<description>` tags
+
+Example output:
+
+```xml
+<heading>Red Sports Bicycle</heading>
+<description>A red bicycle with black tires is parked beside a concrete wall.</description>
+```
+
+The final prompt is available in:
+
+```text
+Model/BestPrompt
+```
