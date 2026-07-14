@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,21 +35,29 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openlens.app.camera.CameraPreview
 import com.openlens.app.camera.rememberCameraController
 import com.openlens.app.picker.rememberImagePickerLauncher
 import com.openlens.app.ui.theme.OpenLensColors
+import com.openlens.app.util.decodeImageBitmap
 import kotlinx.coroutines.delay
 
 /** Home: full-bleed camera with a cyan shutter that captures a frame. The gallery button on the
@@ -68,10 +77,15 @@ fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
         }
     }
 
+    // A successful pick doesn't navigate straight away: the bytes are held here while the reveal
+    // animation grows the image out of the gallery button, then onCaptured fires.
+    var picked by remember { mutableStateOf<ByteArray?>(null) }
+    var galleryOrigin by remember { mutableStateOf<Offset?>(null) }
     val galleryPicker = rememberImagePickerLauncher { bytes ->
-        if (bytes != null) onCaptured(bytes)
+        if (bytes != null) picked = bytes
         else error = "Couldn't load that image — try again"
     }
+    val busy = capturing || picked != null
 
     Box(Modifier.fillMaxSize().background(OpenLensColors.Bg)) {
         CameraPreview(controller, Modifier.fillMaxSize())
@@ -105,12 +119,15 @@ fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
             // The shutter stays optically centered; the gallery button sits off to its left.
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 GalleryButton(
-                    enabled = !capturing,
+                    enabled = !busy,
                     onClick = { galleryPicker.launch() },
-                    modifier = Modifier.align(Alignment.CenterStart).padding(start = 44.dp),
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = 44.dp)
+                        .onGloballyPositioned { galleryOrigin = it.boundsInRoot().center },
                 )
                 ShutterButton(
-                    enabled = !capturing,
+                    enabled = !busy,
                     onClick = {
                         capturing = true
                         error = null
@@ -123,6 +140,76 @@ fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
                 )
             }
         }
+
+        picked?.let { bytes ->
+            GalleryReveal(
+                bytes = bytes,
+                origin = galleryOrigin,
+                onFinished = { onCaptured(bytes) },
+            )
+        }
+    }
+}
+
+/**
+ * Circular reveal of a just-picked gallery image growing out of the gallery button: the image
+ * sits fullscreen while a clip circle expands from the button to the farthest screen corner,
+ * ringed by a fading cyan rim (the shutter's ping language) and settling out of a slight zoom.
+ * [onFinished] fires once fully open, so navigation lands on a pixel-identical scanning frame
+ * and the actual screen swap stays invisible.
+ */
+@Composable
+private fun GalleryReveal(bytes: ByteArray, origin: Offset?, onFinished: () -> Unit) {
+    val image = remember(bytes) { decodeImageBitmap(bytes) }
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(bytes) {
+        // No recorded button position means nothing to grow from — hand off immediately.
+        if (origin != null) {
+            progress.animateTo(1f, animationSpec = tween(durationMillis = 380, easing = FastOutSlowInEasing))
+        }
+        onFinished()
+    }
+    if (origin == null) return
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .drawWithContent {
+                val p = progress.value
+                val startRadius = 24.dp.toPx()
+                val endRadius = listOf(
+                    Offset(0f, 0f),
+                    Offset(size.width, 0f),
+                    Offset(0f, size.height),
+                    Offset(size.width, size.height),
+                ).maxOf { corner -> (corner - origin).getDistance() }
+                val radius = startRadius + (endRadius - startRadius) * p
+                val window = Path().apply { addOval(Rect(center = origin, radius = radius)) }
+                clipPath(window) { this@drawWithContent.drawContent() }
+                if (p < 1f) {
+                    drawCircle(
+                        color = OpenLensColors.Accent,
+                        radius = radius,
+                        center = origin,
+                        alpha = 0.7f * (1f - p),
+                        style = Stroke(width = 2.5.dp.toPx()),
+                    )
+                }
+            },
+    ) {
+        Image(
+            bitmap = image,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    // Lambda form keeps the per-frame scale in the draw phase (no recomposition).
+                    val settle = 1.12f - 0.12f * progress.value
+                    scaleX = settle
+                    scaleY = settle
+                },
+        )
     }
 }
 
