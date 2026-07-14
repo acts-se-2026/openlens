@@ -10,8 +10,8 @@ import androidx.compose.ui.graphics.Color
 object OpenLensColors {
     val Bg = Color(0xFF0E0E11)       // near-black, keeps depth
     val Surface = Color(0xFF1A1A1F)  // cards / sheets off the camera
-    val Accent = Color(0xFF3DE1FF)   // the one "actionable / detected" color
-    val OnAccent = Color(0xFF04232B) // dark content on the light cyan
+    val Accent = Color(0xFFF5F5F7)   // neutral near-white for actionable / detected elements
+    val OnAccent = Color(0xFF0E0E11) // dark content on the near-white accent
     val TextHi = Color(0xFFF5F5F7)
     val TextLo = Color(0xFF9A9AA2)
 }

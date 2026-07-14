@@ -60,7 +60,7 @@ import com.openlens.app.ui.theme.OpenLensColors
 import com.openlens.app.util.decodeImageBitmap
 import kotlinx.coroutines.delay
 
-/** Home: full-bleed camera with a cyan shutter that captures a frame. The gallery button on the
+/** Home: full-bleed camera with a neutral shutter that captures a frame. The gallery button on the
  * shutter's left imports an existing photo through the platform picker instead. */
 @Composable
 fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
@@ -154,7 +154,7 @@ fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
 /**
  * Circular reveal of a just-picked gallery image growing out of the gallery button: the image
  * sits fullscreen while a clip circle expands from the button to the farthest screen corner,
- * ringed by a fading cyan rim (the shutter's ping language) and settling out of a slight zoom.
+ * ringed by a fading white rim (the shutter's ping language) and settling out of a slight zoom.
  * [onFinished] fires once fully open, so navigation lands on a pixel-identical scanning frame
  * and the actual screen swap stays invisible.
  */
@@ -188,7 +188,7 @@ private fun GalleryReveal(bytes: ByteArray, origin: Offset?, onFinished: () -> U
                 clipPath(window) { this@drawWithContent.drawContent() }
                 if (p < 1f) {
                     drawCircle(
-                        color = OpenLensColors.Accent,
+                        color = OpenLensColors.TextHi,
                         radius = radius,
                         center = origin,
                         alpha = 0.7f * (1f - p),
@@ -287,9 +287,10 @@ private fun GalleryButton(
 }
 
 /**
- * Cyan shutter that reacts to the tap: it scales down while pressed (springing back on release),
- * and fires a one-shot ring "ping" outward on each capture as confirmation. Dims and stops
- * responding while a capture is already in flight.
+ * Neutral glassy shutter (dark scrim + subtle border + white core, matching the gallery button)
+ * that reacts to the tap: it scales down while pressed (springing back on release), and fires a
+ * one-shot ring "ping" outward on each capture as confirmation. Dims and stops responding while a
+ * capture is already in flight.
  */
 @Composable
 private fun ShutterButton(enabled: Boolean = true, onClick: () -> Unit) {
@@ -325,7 +326,7 @@ private fun ShutterButton(enabled: Boolean = true, onClick: () -> Unit) {
             if (p > 0f && p < 1f) {
                 val baseRadius = 37.dp.toPx() // half of the 74.dp shutter
                 drawCircle(
-                    color = OpenLensColors.Accent,
+                    color = OpenLensColors.TextHi,
                     radius = baseRadius * (1f + 0.9f * p),
                     alpha = 0.5f * (1f - p),
                     style = Stroke(width = 3.dp.toPx()),
@@ -338,10 +339,13 @@ private fun ShutterButton(enabled: Boolean = true, onClick: () -> Unit) {
                 .size(74.dp)
                 .scale(scale)
                 .alpha(dim)
-                .border(width = 3.dp, color = OpenLensColors.Accent, shape = CircleShape)
-                .padding(7.dp)
                 .clip(CircleShape)
-                .background(OpenLensColors.Accent)
+                .background(Color.Black.copy(alpha = 0.35f))
+                .border(
+                    width = 1.5.dp,
+                    color = OpenLensColors.TextLo.copy(alpha = 0.4f),
+                    shape = CircleShape,
+                )
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
@@ -351,6 +355,15 @@ private fun ShutterButton(enabled: Boolean = true, onClick: () -> Unit) {
                         onClick()
                     },
                 ),
-        )
+            contentAlignment = Alignment.Center,
+        ) {
+            // Solid white core — the capture affordance, kept neutral to match the gallery button.
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(OpenLensColors.TextHi),
+            )
+        }
     }
 }

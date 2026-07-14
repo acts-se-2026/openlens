@@ -34,7 +34,7 @@ import com.openlens.app.util.decodeImageBitmap
 
 /**
  * In-place scanning state: the just-captured frame stays on screen (no cut to black) with a
- * pulsing cyan reticle breathing over its center while the model thinks.
+ * pulsing neutral reticle breathing over its center while the model thinks.
  *
  * Structured as a stack of layers — frozen photo, scrim, reticle — so a detection **bounding-box**
  * layer can later drop in as another sibling over the same image.
@@ -66,7 +66,7 @@ fun ScanningScreen(bytes: ByteArray) {
             modifier = Modifier.fillMaxSize(),
         )
 
-        // Gentle scrim so the cyan reticle stays legible over any photo.
+        // Gentle scrim so the reticle stays legible over any photo.
         Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.18f)))
 
         // Reticle + caption, centered.
