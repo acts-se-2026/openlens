@@ -201,7 +201,7 @@ private fun ResultSheet(result: ScanResult, onScanAgain: () -> Unit) {
 /**
  * A faint, slowly-bobbing chevron floating just above the sheet — a quiet "pull up for more" cue
  * that flips to point down once expanded ("push down to collapse"). Stays mounted across the toggle
- * so it only rotates, never appears/disappears. Accent cyan at low alpha, so it reads without shouting.
+ * so it only rotates, never appears/disappears. Neutral accent at low alpha, so it reads without shouting.
  */
 @Composable
 private fun ScrollHint(expanded: Boolean, modifier: Modifier = Modifier) {

@@ -60,7 +60,7 @@ import com.openlens.app.ui.theme.OpenLensColors
 import com.openlens.app.util.decodeImageBitmap
 import kotlinx.coroutines.delay
 
-/** Home: full-bleed camera with a cyan shutter that captures a frame. The gallery button on the
+/** Home: full-bleed camera with a neutral shutter that captures a frame. The gallery button on the
  * shutter's left imports an existing photo through the platform picker instead. */
 @Composable
 fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
