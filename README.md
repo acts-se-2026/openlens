@@ -1,5 +1,13 @@
 # OpenLens - Google Lens Clone
-# Server 
+# Server
+
+# Server-model connection
+
+This part of the project connects the backend server with the AI model. When the server receives an image, it sends it to the model and waits for the response. After that, the result is returned to the server so it can be shown to the user.
+
+The API key is stored in an .env file so it's not included in the source code.
+
+To start the server you have to install the required dependencies and run the FastAPI application with Uvicorn.
 # Requirement for the server
  
 - Python >= 3.12
