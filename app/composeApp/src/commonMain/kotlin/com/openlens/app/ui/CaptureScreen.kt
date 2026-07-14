@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -34,15 +35,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openlens.app.camera.CameraPreview
 import com.openlens.app.camera.rememberCameraController
+import com.openlens.app.picker.rememberImagePickerLauncher
 import com.openlens.app.ui.theme.OpenLensColors
 import kotlinx.coroutines.delay
 
-/** Home: full-bleed camera with a cyan shutter. Tapping it captures a frame. */
+/** Home: full-bleed camera with a cyan shutter that captures a frame. The gallery button on the
+ * shutter's left imports an existing photo through the platform picker instead. */
 @Composable
 fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
     val controller = rememberCameraController()
@@ -56,6 +66,11 @@ fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
             delay(2500)
             error = null
         }
+    }
+
+    val galleryPicker = rememberImagePickerLauncher { bytes ->
+        if (bytes != null) onCaptured(bytes)
+        else error = "Couldn't load that image — try again"
     }
 
     Box(Modifier.fillMaxSize().background(OpenLensColors.Bg)) {
@@ -74,6 +89,7 @@ fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.navigationBars)
                 .padding(bottom = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -86,18 +102,99 @@ fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
                     modifier = Modifier.padding(bottom = 14.dp),
                 )
             }
-            ShutterButton(
-                enabled = !capturing,
-                onClick = {
-                    capturing = true
-                    error = null
-                    controller.takePicture { bytes ->
-                        capturing = false
-                        if (bytes != null) onCaptured(bytes)
-                        else error = "Couldn't capture — try again"
-                    }
-                },
+            // The shutter stays optically centered; the gallery button sits off to its left.
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                GalleryButton(
+                    enabled = !capturing,
+                    onClick = { galleryPicker.launch() },
+                    modifier = Modifier.align(Alignment.CenterStart).padding(start = 44.dp),
+                )
+                ShutterButton(
+                    enabled = !capturing,
+                    onClick = {
+                        capturing = true
+                        error = null
+                        controller.takePicture { bytes ->
+                            capturing = false
+                            if (bytes != null) onCaptured(bytes)
+                            else error = "Couldn't capture — try again"
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Round scrim button with a hand-drawn photo glyph (frame, sun, mountains) that opens the
+ * platform gallery picker. Mirrors the shutter's press-scale feedback and disabled dimming.
+ */
+@Composable
+private fun GalleryButton(
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.88f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
+        label = "galleryScale",
+    )
+    val dim by animateFloatAsState(
+        targetValue = if (enabled) 1f else 0.5f,
+        label = "galleryDim",
+    )
+
+    Box(
+        modifier = modifier
+            .size(48.dp)
+            .scale(scale)
+            .alpha(dim)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.35f))
+            .border(width = 1.dp, color = OpenLensColors.TextLo.copy(alpha = 0.4f), shape = CircleShape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = enabled,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(modifier = Modifier.size(20.dp)) {
+            val stroke = Stroke(
+                width = 1.8.dp.toPx(),
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round,
             )
+            // Inset the frame so its stroke isn't clipped at the canvas bounds.
+            val inset = stroke.width / 2
+            drawRoundRect(
+                color = OpenLensColors.TextHi,
+                topLeft = Offset(inset, inset),
+                size = Size(size.width - 2 * inset, size.height - 2 * inset),
+                cornerRadius = CornerRadius(3.dp.toPx()),
+                style = stroke,
+            )
+            drawCircle(
+                color = OpenLensColors.TextHi,
+                radius = 1.6.dp.toPx(),
+                center = Offset(size.width * 0.34f, size.height * 0.32f),
+            )
+            val mountains = Path().apply {
+                moveTo(size.width * 0.08f, size.height * 0.8f)
+                lineTo(size.width * 0.4f, size.height * 0.48f)
+                lineTo(size.width * 0.58f, size.height * 0.66f)
+                lineTo(size.width * 0.72f, size.height * 0.54f)
+                lineTo(size.width * 0.92f, size.height * 0.8f)
+            }
+            drawPath(path = mountains, color = OpenLensColors.TextHi, style = stroke)
         }
     }
 }
