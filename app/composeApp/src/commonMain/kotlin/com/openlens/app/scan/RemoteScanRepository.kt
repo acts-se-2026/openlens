@@ -68,7 +68,10 @@ private fun defaultHttpClient(): HttpClient = HttpClient {
         json(Json { ignoreUnknownKeys = true })
     }
     install(HttpTimeout) {
-        // The model round-trip is a few seconds; give it generous headroom.
+        // The model round-trip is a few seconds; give it generous headroom. The socket timeout
+        // must be raised along with the request timeout — otherwise the engine default (~10s of
+        // read inactivity on OkHttp) aborts slow scans long before the request timeout matters.
         requestTimeoutMillis = 60_000
+        socketTimeoutMillis = 60_000
     }
 }

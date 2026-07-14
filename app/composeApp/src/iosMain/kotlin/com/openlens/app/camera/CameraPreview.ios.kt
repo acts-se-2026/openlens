@@ -6,9 +6,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.interop.UIKitView
+import com.openlens.app.util.toByteArray
 import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.cinterop.addressOf
-import kotlinx.cinterop.usePinned
 import platform.AVFoundation.AVCaptureDevice
 import platform.AVFoundation.AVCaptureDeviceInput
 import platform.AVFoundation.AVCapturePhoto
@@ -22,13 +21,11 @@ import platform.AVFoundation.AVMediaTypeVideo
 import platform.AVFoundation.fileDataRepresentation
 import platform.AVFoundation.requestAccessForMediaType
 import platform.CoreGraphics.CGRectMake
-import platform.Foundation.NSData
 import platform.Foundation.NSError
 import platform.UIKit.UIView
 import platform.darwin.NSObject
 import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_global_queue
-import platform.posix.memcpy
 
 @OptIn(ExperimentalForeignApi::class)
 actual class CameraController {
@@ -86,16 +83,6 @@ private class PhotoCaptureDelegate(
     ) {
         onData(didFinishProcessingPhoto.fileDataRepresentation()?.toByteArray())
     }
-}
-
-@OptIn(ExperimentalForeignApi::class)
-private fun NSData.toByteArray(): ByteArray {
-    val size = length.toInt()
-    val out = ByteArray(size)
-    if (size > 0) {
-        out.usePinned { pinned -> memcpy(pinned.addressOf(0), bytes, length) }
-    }
-    return out
 }
 
 @OptIn(ExperimentalForeignApi::class)
