@@ -19,11 +19,12 @@ import kotlinx.serialization.json.Json
  * Real backend: POST the captured JPEG to the FastAPI server's /image_to_model endpoint and map
  * its {"Heading", "Body"} response onto [ScanResult].
  *
- * On a physical device over USB, run `adb reverse tcp:8000 tcp:8000` so localhost points at the
- * dev machine's server.
+ * The target server is chosen by [Env.ACTIVE] (dev = localhost, prod = deployed IP). On a physical
+ * device pointed at [Env.Dev], run `adb reverse tcp:8000 tcp:8000` so localhost reaches the dev
+ * machine's server.
  */
 class RemoteScanRepository(
-    private val baseUrl: String = "http://localhost:8000",
+    private val baseUrl: String = Env.ACTIVE.baseUrl,
     private val client: HttpClient = sharedHttpClient,
 ) : ScanRepository {
 
