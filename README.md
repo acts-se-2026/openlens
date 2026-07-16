@@ -36,6 +36,12 @@ Evaluation results are available in:
 Model/ModelEvaluation
 ```
 
+# Tests
+In order to run testing files you have to open Command Promt or PowerShell, open the folder you are storing the project into and run command:
+```text
+pytest
+```
+
 # Final Prompt
 
 The prompt asks the model to generate:
