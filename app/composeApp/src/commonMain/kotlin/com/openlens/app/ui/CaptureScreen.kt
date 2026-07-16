@@ -24,12 +24,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,24 +53,31 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openlens.app.camera.CameraPreview
 import com.openlens.app.camera.rememberCameraController
 import com.openlens.app.picker.rememberImagePickerLauncher
 import com.openlens.app.ui.theme.OpenLensColors
+import com.openlens.app.util.BlurCheck
 import com.openlens.app.util.decodeImageBitmap
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** Home: full-bleed camera with a neutral shutter that captures a frame. The gallery button on the
  * shutter's left imports an existing photo through the platform picker instead. */
 @Composable
 fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
     val controller = rememberCameraController()
+    val scope = rememberCoroutineScope()
 
     // Guards against firing overlapping captures (rapid taps) and gives feedback when the camera
     // hands back nothing — e.g. a tap while it's still warming up.
     var capturing by remember { mutableStateOf(false) }
+    // The blur gate runs between a capture/pick and navigation; freezes the controls while it does.
+    var checking by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(error) {
         if (error != null) {
@@ -78,14 +87,31 @@ fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
     }
 
     // A successful pick doesn't navigate straight away: the bytes are held here while the reveal
-    // animation grows the image out of the gallery button, then onCaptured fires.
+    // animation grows the image out of the gallery button, then the blur gate runs.
     var picked by remember { mutableStateOf<ByteArray?>(null) }
     var galleryOrigin by remember { mutableStateOf<Offset?>(null) }
+    // Set when a shot fails the sharpness check: shows the "too blurry" prompt over the frame instead
+    // of navigating on. Retake clears it; Use anyway sends the shot through regardless.
+    var blurryBytes by remember { mutableStateOf<ByteArray?>(null) }
     val galleryPicker = rememberImagePickerLauncher { bytes ->
         if (bytes != null) picked = bytes
         else error = "Couldn't load that image — try again"
     }
-    val busy = capturing || picked != null
+    val busy = capturing || checking || picked != null || blurryBytes != null
+
+    // Sharpness gate shared by both capture paths: measure off the main thread, then either warn
+    // (too blurry) or hand the bytes on. An undecodable image scores as "can't tell" and is let
+    // through, so the check can never hard-block a shot it couldn't actually measure.
+    fun review(bytes: ByteArray) {
+        checking = true
+        scope.launch {
+            val blurry = BlurCheck.isBlurry(bytes)
+            capturing = false
+            checking = false
+            picked = null
+            if (blurry) blurryBytes = bytes else onCaptured(bytes)
+        }
+    }
 
     Box(Modifier.fillMaxSize().background(OpenLensColors.Bg)) {
         CameraPreview(controller, Modifier.fillMaxSize())
@@ -132,9 +158,12 @@ fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
                         capturing = true
                         error = null
                         controller.takePicture { bytes ->
-                            capturing = false
-                            if (bytes != null) onCaptured(bytes)
-                            else error = "Couldn't capture — try again"
+                            if (bytes != null) {
+                                review(bytes)
+                            } else {
+                                capturing = false
+                                error = "Couldn't capture — try again"
+                            }
                         }
                     },
                 )
@@ -145,7 +174,19 @@ fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
             GalleryReveal(
                 bytes = bytes,
                 origin = galleryOrigin,
-                onFinished = { onCaptured(bytes) },
+                onFinished = { review(bytes) },
+            )
+        }
+
+        // Over-the-frame soft gate; the offending image stays visible behind it.
+        blurryBytes?.let { bytes ->
+            BlurWarning(
+                bytes = bytes,
+                onRetake = { blurryBytes = null },
+                onUseAnyway = {
+                    blurryBytes = null
+                    onCaptured(bytes)
+                },
             )
         }
     }
@@ -364,6 +405,88 @@ private fun ShutterButton(enabled: Boolean = true, onClick: () -> Unit) {
                     .clip(CircleShape)
                     .background(OpenLensColors.TextHi),
             )
+        }
+    }
+}
+
+/**
+ * Full-screen soft gate shown when a shot scores below [BlurCheck.THRESHOLD]. The offending frame
+ * sits full-bleed under a scrim so the user can see what was blurry; [onRetake] dismisses back to the
+ * camera, [onUseAnyway] sends the shot on regardless. Deliberately non-blocking — a false positive on
+ * a genuinely sharp but low-texture subject costs one tap, never a trapped capture.
+ */
+@Composable
+private fun BlurWarning(bytes: ByteArray, onRetake: () -> Unit, onUseAnyway: () -> Unit) {
+    val image = remember(bytes) { decodeImageBitmap(bytes) }
+
+    Box(modifier = Modifier.fillMaxSize().background(OpenLensColors.Bg)) {
+        Image(
+            bitmap = image,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        // Darken the frame so the message and buttons stay legible over any scene.
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.62f)))
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .padding(horizontal = 40.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "Too blurry",
+                color = OpenLensColors.TextHi,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "This shot looks out of focus. Retake it for a sharper read.",
+                color = OpenLensColors.TextLo,
+                fontSize = 15.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 10.dp),
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(horizontal = 24.dp, vertical = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            // Primary: get a better shot.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(OpenLensColors.Accent)
+                    .clickable(onClick = onRetake)
+                    .padding(vertical = 15.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "Retake",
+                    color = OpenLensColors.OnAccent,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            // Secondary: proceed with the blurry shot anyway.
+            Box(
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable(onClick = onUseAnyway)
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(text = "Use anyway", color = OpenLensColors.TextLo, fontSize = 15.sp)
+            }
         }
     }
 }
