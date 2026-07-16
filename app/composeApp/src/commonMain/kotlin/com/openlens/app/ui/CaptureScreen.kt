@@ -1,5 +1,6 @@
 package com.openlens.app.ui
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
@@ -13,7 +14,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,7 +47,9 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -50,20 +58,30 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openlens.app.camera.CameraPreview
 import com.openlens.app.camera.rememberCameraController
 import com.openlens.app.picker.rememberImagePickerLauncher
+import com.openlens.app.scan.ScanMode
 import com.openlens.app.ui.theme.OpenLensColors
 import com.openlens.app.util.decodeImageBitmap
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** Home: full-bleed camera with a neutral shutter that captures a frame. The gallery button on the
  * shutter's left imports an existing photo through the platform picker instead. */
 @Composable
-fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
+fun CaptureScreen(
+    selectedMode: ScanMode,
+    onModeSelected: (ScanMode) -> Unit,
+    onCaptured: (ByteArray) -> Unit,
+) {
     val controller = rememberCameraController()
 
     // Guards against firing overlapping captures (rapid taps) and gives feedback when the camera
@@ -90,10 +108,28 @@ fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
     Box(Modifier.fillMaxSize().background(OpenLensColors.Bg)) {
         CameraPreview(controller, Modifier.fillMaxSize())
 
+        // Bottom scrim: keeps the mode strip and controls legible over bright or white scenes.
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(320.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Transparent,
+                            0.5f to OpenLensColors.Bg.copy(alpha = 0.45f),
+                            1f to OpenLensColors.Bg.copy(alpha = 0.85f),
+                        ),
+                    ),
+                ),
+        )
+
         Text(
             text = "OpenLens",
             color = OpenLensColors.TextHi,
             fontSize = 16.sp,
+            style = TextStyle(shadow = Shadow(color = Color.Black.copy(alpha = 0.5f), blurRadius = 8f)),
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .windowInsetsPadding(WindowInsets.statusBars)
@@ -116,6 +152,12 @@ fun CaptureScreen(onCaptured: (ByteArray) -> Unit) {
                     modifier = Modifier.padding(bottom = 14.dp),
                 )
             }
+            ModeStrip(
+                selected = selectedMode,
+                enabled = !busy,
+                onSelect = onModeSelected,
+                modifier = Modifier.padding(bottom = 18.dp),
+            )
             // The shutter stays optically centered; the gallery button sits off to its left.
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 GalleryButton(
@@ -365,5 +407,152 @@ private fun ShutterButton(enabled: Boolean = true, onClick: () -> Unit) {
                     .background(OpenLensColors.TextHi),
             )
         }
+    }
+}
+
+/**
+ * Camera-app style tier picker: a centered row of mode labels, the active one enlarged and in the
+ * near-white accent. Tap a label to jump to it, or drag horizontally and release past a threshold to
+ * step one mode over — both settle with the same spring that re-centers the selected slot. [enabled]
+ * dims and freezes the strip while a capture is in flight.
+ */
+@Composable
+private fun ModeStrip(
+    selected: ScanMode,
+    enabled: Boolean,
+    onSelect: (ScanMode) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val modes = ScanMode.entries
+    val selectedIndex = modes.indexOf(selected)
+    val middleIndex = (modes.size - 1) / 2f
+
+    val density = LocalDensity.current
+    val slotWidth = 104.dp
+    val slotWidthPx = with(density) { slotWidth.toPx() }
+    // Releasing past a third of a slot from the current centre commits to the neighbouring mode.
+    val threshold = slotWidthPx * 0.33f
+
+    // Row translation that centres slot [i]: the middle slot sits at 0, each step is one slot wide.
+    fun offsetForIndex(i: Int) = (middleIndex - i) * slotWidthPx
+
+    // ONE source of truth for the row position. On release we animate this from wherever the finger
+    // let go straight to the target centre — so it never jumps back to the old centre first.
+    val translation = remember { Animatable(offsetForIndex(selectedIndex)) }
+    val settleSpec = spring<Float>(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = Spring.StiffnessMediumLow,
+    )
+    val scope = rememberCoroutineScope()
+    var dragging by remember { mutableStateOf(false) }
+
+    // Taps (and any external selection change) glide to the new centre — but never mid-drag, where
+    // the finger owns the position.
+    LaunchedEffect(selectedIndex) {
+        if (!dragging) translation.animateTo(offsetForIndex(selectedIndex), settleSpec)
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .alpha(if (enabled) 1f else 0.5f)
+            .pointerInput(enabled, selectedIndex) {
+                if (!enabled) return@pointerInput
+                // A little overscroll past the ends so they don't feel like a hard wall.
+                val minOffset = offsetForIndex(modes.lastIndex) - slotWidthPx * 0.4f
+                val maxOffset = offsetForIndex(0) + slotWidthPx * 0.4f
+                detectHorizontalDragGestures(
+                    onDragStart = {
+                        dragging = true
+                        scope.launch { translation.stop() } // hand control to the finger mid-settle
+                    },
+                    onDragEnd = {
+                        dragging = false
+                        val dragged = translation.value - offsetForIndex(selectedIndex)
+                        val steps = when {
+                            dragged <= -threshold -> 1   // dragged left -> heavier mode
+                            dragged >= threshold -> -1   // dragged right -> lighter mode
+                            else -> 0
+                        }
+                        val next = (selectedIndex + steps).coerceIn(0, modes.lastIndex)
+                        if (next != selectedIndex) {
+                            // Selection change re-fires the LaunchedEffect, which settles from here.
+                            onSelect(modes[next])
+                        } else {
+                            scope.launch { translation.animateTo(offsetForIndex(selectedIndex), settleSpec) }
+                        }
+                    },
+                    onDragCancel = {
+                        dragging = false
+                        scope.launch { translation.animateTo(offsetForIndex(selectedIndex), settleSpec) }
+                    },
+                ) { change, dragAmount ->
+                    change.consume()
+                    scope.launch {
+                        translation.snapTo((translation.value + dragAmount).coerceIn(minOffset, maxOffset))
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        // graphicsLayer translates in the draw phase only — no relayout per touch frame.
+        Row(modifier = Modifier.graphicsLayer { translationX = translation.value }) {
+            modes.forEach { mode ->
+                ModeLabel(
+                    mode = mode,
+                    active = mode == selected,
+                    enabled = enabled,
+                    onClick = { onSelect(mode) },
+                    modifier = Modifier.width(slotWidth),
+                )
+            }
+        }
+    }
+}
+
+/** One label slot in [ModeStrip]: color/size lift when active, with a small accent dot beneath. */
+@Composable
+private fun ModeLabel(
+    mode: ScanMode,
+    active: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val color by animateColorAsState(
+        targetValue = if (active) OpenLensColors.TextHi else OpenLensColors.TextLo,
+        label = "modeLabelColor",
+    )
+    val dotAlpha by animateFloatAsState(
+        targetValue = if (active) 1f else 0f,
+        label = "modeDotAlpha",
+    )
+    val interactionSource = remember { MutableInteractionSource() }
+
+    Column(
+        modifier = modifier.clickable(
+            interactionSource = interactionSource,
+            indication = null,
+            enabled = enabled,
+            onClick = onClick,
+        ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = mode.label,
+            color = color,
+            fontSize = if (active) 16.sp else 14.sp,
+            fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
+            style = TextStyle(shadow = Shadow(color = Color.Black.copy(alpha = 0.6f), blurRadius = 10f)),
+        )
+        Box(
+            modifier = Modifier
+                .padding(top = 6.dp)
+                .size(4.dp)
+                .alpha(dotAlpha)
+                .clip(CircleShape)
+                .background(OpenLensColors.Accent),
+        )
     }
 }

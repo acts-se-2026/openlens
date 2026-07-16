@@ -33,7 +33,7 @@ class RemoteScanRepository(
         @SerialName("Body") val body: String,
     )
 
-    override suspend fun identify(image: ByteArray): ScanResult {
+    override suspend fun identify(image: ByteArray, model: ScanMode): ScanResult {
         val response: ScanResponse = client.post("$baseUrl/image_to_model") {
             setBody(
                 MultiPartFormDataContent(
@@ -47,6 +47,8 @@ class RemoteScanRepository(
                                 append(HttpHeaders.ContentDisposition, "filename=\"capture.jpg\"")
                             },
                         )
+                        // Selected tier ("speed"/"balanced"/"complex"); backend maps it to a model id.
+                        append(key = "model", value = model.wire)
                     },
                 ),
             )
