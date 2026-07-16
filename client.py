@@ -1,44 +1,23 @@
 import base64
 import requests
-import io
 
-from PIL import Image, ImageEnhance, ImageOps
+from image_prep import image_preprocessing
 
 API_KEY = "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"
 
 MODELS = {
-    "fast": "qwen/qwen3.6-flash",
-    "free": "google/gemini-3.1-flash-lite",
-    "deep": "anthropic/claude-fable-5"
+    "fast": "openai/gpt-5.6-luna",
+    "balanced": "google/gemini-3-flash-preview",
+    "deep": "openai/gpt-5.6-sol",
+    "free": "google/gemma-4-26b-a4b-it:free"
 }
 
-MAX_DIMENSION = 1600
-JPEG_QUALITY = 90
 
-def preprocess_image(image_bytes):
-    image = Image.open(io.BytesIO(image_bytes))
-
-    image = ImageOps.exif_transpose(image)
-
-    image = image.convert("RGB")
-
-    image.thumbnail((MAX_DIMENSION, MAX_DIMENSION),Image.Resampling.LANCZOS)
-
-    image = ImageOps.autocontrast(image, cutoff = 1)
-
-    image = ImageEnhance.Sharpness(image).enhance(1.10)
-
-    output = io.BytesIO()
-
-    image.save(output, format = "JPEG", quality = JPEG_QUALITY, optimize = True)
-
-    return output.getvalue()
-
-def analyze_image(image_bytes, model="free"):
+def analyze_image(image_bytes, model="balanced"):
     selected_model = MODELS.get(model)
 
-    processed_image = preprocess_image(image_bytes)
-    image_b64 = base64.b64encode(processed_image).decode("utf-8") #image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    processed_image = image_preprocessing(image_bytes)
+    image_b64 = base64.b64encode(processed_image).decode("utf-8")
 
     payload = {
         "model": selected_model,
@@ -68,8 +47,6 @@ def analyze_image(image_bytes, model="free"):
             }
         ]
     }
-    
-    #print("START RQ")
 
     response = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
@@ -80,8 +57,6 @@ def analyze_image(image_bytes, model="free"):
         json=payload,
         timeout=120
     )
-
-    #print("END RQ")
 
     response.raise_for_status()
 
