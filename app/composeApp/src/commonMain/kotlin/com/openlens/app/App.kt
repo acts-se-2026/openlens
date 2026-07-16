@@ -1,5 +1,6 @@
 package com.openlens.app
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -9,6 +10,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.openlens.app.camera.CameraPreview
+import com.openlens.app.camera.rememberCameraController
 import com.openlens.app.scan.RemoteScanRepository
 import com.openlens.app.scan.ScanResult
 import com.openlens.app.ui.CaptureScreen
@@ -28,34 +31,49 @@ fun App() {
     OpenLensTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = OpenLensColors.Bg) {
             val repository = remember { RemoteScanRepository() }
+            val controller = rememberCameraController()
             var screen: Screen by remember { mutableStateOf(Screen.Capture) }
 
-            when (val current = screen) {
-                is Screen.Capture ->
-                    CaptureScreen(onCaptured = { bytes -> screen = Screen.Scanning(bytes) })
-
-                is Screen.Scanning -> {
-                    ScanningScreen(bytes = current.bytes)
-                    LaunchedEffect(current) {
-                        val result = try {
-                            repository.identify(current.bytes)
-                        } catch (e: Exception) {
-                            // Show the failure on the result sheet instead of crashing the app.
-                            ScanResult(
-                                label = "Couldn't reach the server",
-                                detail = e.message ?: "Unknown error",
-                            )
-                        }
-                        screen = Screen.Result(current.bytes, result)
-                    }
+            Box(Modifier.fillMaxSize()) {
+                // One long-lived camera preview under everything, kept in composition across Capture
+                // and Scanning and only released when the description (Result) screen takes over — so
+                // the camera isn't re-warmed between a shot and its scan, and the auto-retake / retake
+                // flow always shoots through an already-warm camera. Scanning and Result paint an
+                // opaque frozen frame over it, so it's only ever visible on the Capture screen.
+                if (screen !is Screen.Result) {
+                    CameraPreview(controller, Modifier.fillMaxSize())
                 }
 
-                is Screen.Result ->
-                    ResultScreen(
-                        bytes = current.bytes,
-                        result = current.result,
-                        onScanAgain = { screen = Screen.Capture },
-                    )
+                when (val current = screen) {
+                    is Screen.Capture ->
+                        CaptureScreen(
+                            controller = controller,
+                            onCaptured = { bytes -> screen = Screen.Scanning(bytes) },
+                        )
+
+                    is Screen.Scanning -> {
+                        ScanningScreen(bytes = current.bytes)
+                        LaunchedEffect(current) {
+                            val result = try {
+                                repository.identify(current.bytes)
+                            } catch (e: Exception) {
+                                // Show the failure on the result sheet instead of crashing the app.
+                                ScanResult(
+                                    label = "Couldn't reach the server",
+                                    detail = e.message ?: "Unknown error",
+                                )
+                            }
+                            screen = Screen.Result(current.bytes, result)
+                        }
+                    }
+
+                    is Screen.Result ->
+                        ResultScreen(
+                            bytes = current.bytes,
+                            result = current.result,
+                            onScanAgain = { screen = Screen.Capture },
+                        )
+                }
             }
         }
     }
