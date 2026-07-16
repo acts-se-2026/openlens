@@ -20,13 +20,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.openlens.app.auth.RemoteAuthRepository
-import com.openlens.app.auth.createAuthedClient
-import com.openlens.app.auth.createPublicClient
+import com.openlens.app.auth.AuthGraph
 import com.openlens.app.auth.rememberTokenStorage
 import com.openlens.app.camera.CameraPreview
 import com.openlens.app.camera.rememberCameraController
-import com.openlens.app.scan.RemoteScanRepository
 import com.openlens.app.scan.ScanResult
 import com.openlens.app.ui.CaptureScreen
 import com.openlens.app.ui.LoginScreen
@@ -51,15 +48,14 @@ private sealed interface Screen {
 fun App() {
     OpenLensTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = OpenLensColors.Bg) {
-            // Secure token store + the two clients (public for auth, authed w/ refresh for everything
-            // gated). The scan repo uses the authed client so /image_to_model carries the bearer.
+            // Secure token store wired once into the process-level graph. The clients (public for
+            // auth, authed w/ refresh for gated calls) are singletons there, so they survive Activity
+            // recreation instead of leaking an engine per rotation. Scans use the authed client so
+            // /image_to_model carries the bearer.
             val tokenStorage = rememberTokenStorage()
-            val publicClient = remember { createPublicClient() }
-            val authedClient = remember(tokenStorage) { createAuthedClient(tokenStorage, publicClient) }
-            val authRepository = remember(tokenStorage) {
-                RemoteAuthRepository(tokenStorage, publicClient, authedClient)
-            }
-            val repository = remember(authedClient) { RemoteScanRepository(client = authedClient) }
+            remember(tokenStorage) { AuthGraph.ensureInitialized(tokenStorage) }
+            val authRepository = AuthGraph.authRepository
+            val repository = AuthGraph.scanRepository
             val controller = rememberCameraController()
             val scope = rememberCoroutineScope()
 
