@@ -35,6 +35,11 @@ Evaluation results are available in:
 ```text
 Model/ModelEvaluation
 ```
+# Tests
+Open your Command Prompt or Powershell, open the project folder and run command:
+```text
+pytest
+```
 
 # Final Prompt
 
