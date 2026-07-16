@@ -117,7 +117,11 @@ private suspend fun autoRetake(
  * owned by the caller ([controller]) and hoisted above this screen, so it survives the hop into
  * scanning; this screen only draws the controls over it. */
 @Composable
-fun CaptureScreen(controller: CameraController, onCaptured: (ByteArray) -> Unit) {
+fun CaptureScreen(
+    controller: CameraController,
+    onCaptured: (ByteArray) -> Unit,
+    onLogout: () -> Unit,
+) {
     val scope = rememberCoroutineScope()
 
     // Guards against firing overlapping captures (rapid taps) and gives feedback when the camera
@@ -179,6 +183,17 @@ fun CaptureScreen(controller: CameraController, onCaptured: (ByteArray) -> Unit)
                 .align(Alignment.TopCenter)
                 .windowInsetsPadding(WindowInsets.statusBars)
                 .padding(top = 16.dp),
+        )
+
+        Text(
+            text = "Log out",
+            color = OpenLensColors.TextLo,
+            fontSize = 14.sp,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(top = 16.dp, end = 20.dp)
+                .clickable(onClick = onLogout),
         )
 
         Column(

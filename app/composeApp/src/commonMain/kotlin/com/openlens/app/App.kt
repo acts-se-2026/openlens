@@ -1,26 +1,47 @@
 package com.openlens.app
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.openlens.app.auth.RemoteAuthRepository
+import com.openlens.app.auth.createAuthedClient
+import com.openlens.app.auth.createPublicClient
+import com.openlens.app.auth.rememberTokenStorage
 import com.openlens.app.camera.CameraPreview
 import com.openlens.app.camera.rememberCameraController
 import com.openlens.app.scan.RemoteScanRepository
 import com.openlens.app.scan.ScanResult
 import com.openlens.app.ui.CaptureScreen
+import com.openlens.app.ui.LoginScreen
+import com.openlens.app.ui.RegisterScreen
 import com.openlens.app.ui.ResultScreen
 import com.openlens.app.ui.ScanningScreen
 import com.openlens.app.ui.theme.OpenLensColors
 import com.openlens.app.ui.theme.OpenLensTheme
+import kotlinx.coroutines.launch
 
 private sealed interface Screen {
+    /** Startup: checking for a restorable session before showing auth or the camera. */
+    data object Restoring : Screen
+    data object Login : Screen
+    data object Register : Screen
     data object Capture : Screen
     data class Scanning(val bytes: ByteArray) : Screen
     data class Result(val bytes: ByteArray, val result: ScanResult) : Screen
@@ -30,25 +51,61 @@ private sealed interface Screen {
 fun App() {
     OpenLensTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = OpenLensColors.Bg) {
-            val repository = remember { RemoteScanRepository() }
+            // Secure token store + the two clients (public for auth, authed w/ refresh for everything
+            // gated). The scan repo uses the authed client so /image_to_model carries the bearer.
+            val tokenStorage = rememberTokenStorage()
+            val publicClient = remember { createPublicClient() }
+            val authedClient = remember(tokenStorage) { createAuthedClient(tokenStorage, publicClient) }
+            val authRepository = remember(tokenStorage) {
+                RemoteAuthRepository(tokenStorage, publicClient, authedClient)
+            }
+            val repository = remember(authedClient) { RemoteScanRepository(client = authedClient) }
             val controller = rememberCameraController()
-            var screen: Screen by remember { mutableStateOf(Screen.Capture) }
+            val scope = rememberCoroutineScope()
+
+            var screen: Screen by remember { mutableStateOf(Screen.Restoring) }
+
+            // Restore an existing login before showing anything: a valid session skips straight to
+            // the camera; otherwise (no token, or refresh rejected) land on Login.
+            LaunchedEffect(Unit) {
+                screen = if (authRepository.validateSession()) Screen.Capture else Screen.Login
+            }
 
             Box(Modifier.fillMaxSize()) {
-                // One long-lived camera preview under everything, kept in composition across Capture
-                // and Scanning and only released when the description (Result) screen takes over — so
-                // the camera isn't re-warmed between a shot and its scan, and the auto-retake / retake
-                // flow always shoots through an already-warm camera. Scanning and Result paint an
-                // opaque frozen frame over it, so it's only ever visible on the Capture screen.
-                if (screen !is Screen.Result) {
+                // One long-lived camera preview under Capture + Scanning only — never under auth,
+                // the splash, or Result. Kept across the capture→scan hop so the camera isn't
+                // re-warmed between a shot and its scan; Scanning/Result paint an opaque frame over it.
+                if (screen is Screen.Capture || screen is Screen.Scanning) {
                     CameraPreview(controller, Modifier.fillMaxSize())
                 }
 
                 when (val current = screen) {
-                    is Screen.Capture ->
+                    Screen.Restoring -> RestoringScreen()
+
+                    Screen.Login ->
+                        LoginScreen(
+                            onLoggedIn = { screen = Screen.Capture },
+                            onNavigateToRegister = { screen = Screen.Register },
+                            login = authRepository::login,
+                        )
+
+                    Screen.Register ->
+                        RegisterScreen(
+                            onRegistered = { screen = Screen.Capture },
+                            onNavigateToLogin = { screen = Screen.Login },
+                            register = authRepository::register,
+                        )
+
+                    Screen.Capture ->
                         CaptureScreen(
                             controller = controller,
                             onCaptured = { bytes -> screen = Screen.Scanning(bytes) },
+                            onLogout = {
+                                scope.launch {
+                                    authRepository.logout()
+                                    screen = Screen.Login
+                                }
+                            },
                         )
 
                     is Screen.Scanning -> {
@@ -75,6 +132,26 @@ fun App() {
                         )
                 }
             }
+        }
+    }
+}
+
+/** Brief startup splash while the session is being restored. */
+@Composable
+private fun RestoringScreen() {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "OpenLens",
+                color = OpenLensColors.TextHi,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            CircularProgressIndicator(
+                color = OpenLensColors.Accent,
+                strokeWidth = 2.dp,
+                modifier = Modifier.padding(top = 20.dp).size(22.dp),
+            )
         }
     }
 }
