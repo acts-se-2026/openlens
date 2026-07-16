@@ -1,21 +1,11 @@
 ﻿image_path,model,variant,status,response_time_seconds,format_ok,heading,description,ai_response
-../ImageDataset/Apples.jpg,google/gemini-3.1-pro-preview,after,success,16.13,False,Wet Red and Green Apples,<heading>Wet Red and Green Apples</heading><description>A,<heading>Wet Red and Green Apples</heading><description>A
-../ImageDataset/Bicycles_parked.jpg,google/gemini-3.1-pro-preview,after,success,6.04,False,Row of Parked Bicycles,<heading>Row of Parked Bicycles</heading><description,<heading>Row of Parked Bicycles</heading><description
-../ImageDataset/Blurry_city.jpg,google/gemini-3.1-pro-preview,after,success,6.17,False,,"Blurred Nighttime City Street
-    *Check constraints"," Blurred Nighttime City Street
-    *Check constraints"
-../ImageDataset/Chair.jpg,google/gemini-3.1-pro-preview,after,success,5.22,False,Simple Wooden Chair,<heading>Simple Wooden Chair</heading><description>A simple wooden,<heading>Simple Wooden Chair</heading><description>A simple wooden
-../ImageDataset/Chair2.jpg,google/gemini-3.1-pro-preview,after,success,14.95,False,Grey Velvet Tufted Armchair,<heading>Grey Velvet Tufted Armchair</heading><description>,<heading>Grey Velvet Tufted Armchair</heading><description>
-../ImageDataset/Coffee_in_a_mug.jpg,google/gemini-3.1-pro-preview,after,success,5.49,False,,<heading>White Ceramic Coffee Mug</heading,<heading>White Ceramic Coffee Mug</heading
-../ImageDataset/Cute_seal.jpg,google/gemini-3.1-pro-preview,after,success,15.33,False,White Seal Pup,<heading>White Seal Pup</heading><description>A small,<heading>White Seal Pup</heading><description>A small
-../ImageDataset/Dog_Couch.jpg,google/gemini-3.1-pro-preview,after,success,5.85,False,,<heading>Brindle Boxer Dog on Couch</heading,<heading>Brindle Boxer Dog on Couch</heading
-../ImageDataset/Kitchen_interior_design.jpg,google/gemini-3.1-pro-preview,after,success,15.54,False,Kitchen Stove and Countertop,<heading>Kitchen Stove and Countertop</heading><,<heading>Kitchen Stove and Countertop</heading><
-../ImageDataset/Laptop_on_a_desk.jpg,google/gemini-3.1-pro-preview,after,success,6.49,False,,"Text:** ""Adobe Lightroom"", ""Library | Develop | Map","Text:** ""Adobe Lightroom"", ""Library | Develop | Map"
-../ImageDataset/Pedestrians_crossing_the_a_busy_street.jpg,google/gemini-3.1-pro-preview,after,success,5.98,False,Busy City Street Scene,<heading>Busy City Street Scene</heading><,<heading>Busy City Street Scene</heading><
-../ImageDataset/Picture_of_computer_desk.jpg,google/gemini-3.1-pro-preview,after,success,15.63,False,,"Draft `<heading>`:**
-    *"," Draft `<heading>`:**
-    *   "
-../ImageDataset/Riding_a_bike_in_the_park.jpg,google/gemini-3.1-pro-preview,after,success,6.03,False,,<heading>Woman Cycling in a Park</heading,<heading>Woman Cycling in a Park</heading
-../ImageDataset/Seal.jpg,google/gemini-3.1-pro-preview,after,success,15.54,False,,<heading>Close-up of a Seal</heading,<heading>Close-up of a Seal</heading
-../ImageDataset/Traffic_Sign_post.jpg,google/gemini-3.1-pro-preview,after,success,16.14,False,Yellow Slow Down Traffic Sign,<heading>Yellow Slow Down Traffic Sign</heading><description,<heading>Yellow Slow Down Traffic Sign</heading><description
-../ImageDataset/White_mug.jpg,google/gemini-3.1-pro-preview,after,success,16.04,False,Plain White Ceramic Mug,<heading>Plain White Ceramic Mug</heading><description>A,<heading>Plain White Ceramic Mug</heading><description>A
+../ImageDataset/Blurry_city.jpg,google/gemini-3.1-pro-preview,after,error,2.23,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/camouflaged_animal.jpg,google/gemini-3.1-pro-preview,after,error,4.05,False,,,ERROR: 402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/crowded_market.jpg,google/gemini-3.1-pro-preview,after,error,2.64,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/cyclist.jpg,google/gemini-3.1-pro-preview,after,error,2.87,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/dark_light_man.jpg,google/gemini-3.1-pro-preview,after,error,2.17,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/distant_road_sign.jpg,google/gemini-3.1-pro-preview,after,error,3.18,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/insect.jpg,google/gemini-3.1-pro-preview,after,error,2.92,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/night_traffic_blur.jpg,google/gemini-3.1-pro-preview,after,error,3.1,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/rain_window_reflection.jpg,google/gemini-3.1-pro-preview,after,error,1.7,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/smoke_ships.jpg,google/gemini-3.1-pro-preview,after,error,2.03,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
