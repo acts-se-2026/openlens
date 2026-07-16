@@ -1,7 +1,21 @@
-from fastapi import FastAPI, UploadFile, File
-from .client import analyze_image
+from contextlib import asynccontextmanager
 
-app = FastAPI()
+from fastapi import FastAPI, UploadFile, File
+
+from .auth import router as auth_router
+from .client import analyze_image
+from .db import init_db
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()  # create tables on startup
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+app.include_router(auth_router)
+
 
 @app.post("/image_to_model")
 async def image_to_model(file: UploadFile = File(...)):
