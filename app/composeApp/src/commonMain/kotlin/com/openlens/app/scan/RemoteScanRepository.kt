@@ -47,7 +47,7 @@ class RemoteScanRepository(
                                 append(HttpHeaders.ContentDisposition, "filename=\"capture.jpg\"")
                             },
                         )
-                        // Selected tier ("speed"/"balanced"/"complex"); backend maps it to a model id.
+                        // Selected tier ("free"/"fast"/"deep"); backend maps it to a model id.
                         append(key = "model", value = model.wire)
                     },
                 ),
