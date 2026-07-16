@@ -1,33 +1,62 @@
 import base64
-import os
-import re
-
 import requests
-from dotenv import load_dotenv
+import io
 
-load_dotenv()
+from PIL import Image, ImageEnhance, ImageOps
 
-API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = "google/gemini-3-flash-preview"
+API_KEY = "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"
 
+MODELS = {
+    "fast": "qwen/qwen3.6-flash",
+    "free": "google/gemini-3.1-flash-lite",
+    "deep": "anthropic/claude-fable-5"
+}
 
-def analyze_image(image_bytes):
-    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+MAX_DIMENSION = 1600
+JPEG_QUALITY = 90
+
+def preprocess_image(image_bytes):
+    image = Image.open(io.BytesIO(image_bytes))
+
+    image = ImageOps.exif_transpose(image)
+
+    image = image.convert("RGB")
+
+    image.thumbnail((MAX_DIMENSION, MAX_DIMENSION),Image.Resampling.LANCZOS)
+
+    image = ImageOps.autocontrast(image, cutoff = 1)
+
+    image = ImageEnhance.Sharpness(image).enhance(1.10)
+
+    output = io.BytesIO()
+
+    image.save(output, format = "JPEG", quality = JPEG_QUALITY, optimize = True)
+
+    return output.getvalue()
+
+def analyze_image(image_bytes, model="free"):
+    selected_model = MODELS.get(model)
+
+    processed_image = preprocess_image(image_bytes)
+    image_b64 = base64.b64encode(processed_image).decode("utf-8") #image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+
     payload = {
-        "model": MODEL,
+        "model": selected_model,
         "messages": [
             {
                 "role": "user",
                 "content": [
                     {
                         "type": "text",
-                        "text": "Return the answer using exactly two XML tags: <heading> and <description>."
-                        "Inside <heading>, write a short and specific title of 2-6 words that clearly identifies what is visible in the image. "
-                        "Inside <description>, identify the main subject and describe it in one concise, factual paragraph of 2-3 sentences. "
-                        "Include distinctive colors, materials, shapes, context, and any readable text that would help a visual search engine find similar objects or scenes. "
-                        "Avoid decorative language, unsupported assumptions, and phrases such as 'The image shows. "
-                        "Express uncertain identifications cautiously using words such as 'likely,' 'possibly,' or 'appears to be. "
-                        "Use this exact output format: <heading>Specific image title</heading><description>Concise factual description.</description>"
+                        "text": (
+                            "Return the answer using exactly two XML tags: <title> and <description>. "
+                            "Inside <title>, write a short and specific title of 2-6 words that clearly identifies what is visible in the image. "
+                            "Inside <description>, identify the main subject and describe it in one concise, factual paragraph of 2-3 sentences. "
+                            "Include distinctive colors, materials, shapes, context, and any readable text that would help a visual search engine find similar objects or scenes. "
+                            "Avoid decorative language, unsupported assumptions, and phrases such as 'The image shows'. "
+                            "Express uncertain identifications cautiously using words such as 'likely', 'possibly', or 'appears to be'. "
+                            "Use this exact output format: <title>Specific image title</title><description>Concise factual description.</description>"
+                        )
                     },
                     {
                         "type": "image_url",
@@ -39,6 +68,8 @@ def analyze_image(image_bytes):
             }
         ]
     }
+    
+    #print("START RQ")
 
     response = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
@@ -50,14 +81,10 @@ def analyze_image(image_bytes):
         timeout=120
     )
 
-    response.raise_for_status()
-    content = response.json()["choices"][0]["message"]["content"]
+    #print("END RQ")
 
-    # server.py reads result["heading"] and result["body"], so pull them out of the
-    # model's <heading>/<description> tags. Fall back to the raw text if a tag is missing.
-    heading = re.search(r"<heading>(.*?)</heading>", content, re.DOTALL)
-    description = re.search(r"<description>(.*?)</description>", content, re.DOTALL)
-    return {
-        "heading": heading.group(1).strip() if heading else "Result",
-        "body": description.group(1).strip() if description else content.strip(),
-    }
+    response.raise_for_status()
+
+    result = response.json()
+
+    return result["choices"][0]["message"]["content"]
