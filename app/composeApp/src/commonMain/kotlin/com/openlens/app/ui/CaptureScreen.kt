@@ -33,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -71,6 +72,7 @@ import com.openlens.app.picker.rememberImagePickerLauncher
 import com.openlens.app.scan.ScanMode
 import com.openlens.app.ui.theme.OpenLensColors
 import com.openlens.app.util.decodeImageBitmap
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -436,20 +438,33 @@ private fun ModeStrip(
     // Row translation that centres slot [i]: the middle slot sits at 0, each step is one slot wide.
     fun offsetForIndex(i: Int) = (middleIndex - i) * slotWidthPx
 
-    // ONE source of truth for the row position. On release we animate this from wherever the finger
-    // let go straight to the target centre — so it never jumps back to the old centre first.
-    val translation = remember { Animatable(offsetForIndex(selectedIndex)) }
-    val settleSpec = spring<Float>(
-        dampingRatio = Spring.DampingRatioNoBouncy,
-        stiffness = Spring.StiffnessMediumLow,
-    )
+    // ONE plain-float source of truth for the row position. It is written *synchronously* during the
+    // drag (allocation-free — no coroutine per touch frame) and read in the draw phase by
+    // graphicsLayer. On release a settle animation eases this same value from wherever the finger let
+    // go straight to the target centre, so it never jumps back to the old centre first.
+    var offsetX by remember { mutableFloatStateOf(offsetForIndex(selectedIndex)) }
+    val settleSpec = remember {
+        spring<Float>(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        )
+    }
     val scope = rememberCoroutineScope()
     var dragging by remember { mutableStateOf(false) }
+    var settleJob by remember { mutableStateOf<Job?>(null) }
+
+    // Settle runs one coroutine per release (not per frame); the Animatable drives [offsetX] back.
+    fun settleTo(target: Float) {
+        settleJob?.cancel()
+        settleJob = scope.launch {
+            Animatable(offsetX).animateTo(target, settleSpec) { offsetX = this.value }
+        }
+    }
 
     // Taps (and any external selection change) glide to the new centre — but never mid-drag, where
     // the finger owns the position.
     LaunchedEffect(selectedIndex) {
-        if (!dragging) translation.animateTo(offsetForIndex(selectedIndex), settleSpec)
+        if (!dragging) settleTo(offsetForIndex(selectedIndex))
     }
 
     Box(
@@ -465,11 +480,11 @@ private fun ModeStrip(
                 detectHorizontalDragGestures(
                     onDragStart = {
                         dragging = true
-                        scope.launch { translation.stop() } // hand control to the finger mid-settle
+                        settleJob?.cancel() // hand control to the finger, even mid-settle
                     },
                     onDragEnd = {
                         dragging = false
-                        val dragged = translation.value - offsetForIndex(selectedIndex)
+                        val dragged = offsetX - offsetForIndex(selectedIndex)
                         val steps = when {
                             dragged <= -threshold -> 1   // dragged left -> heavier mode
                             dragged >= threshold -> -1   // dragged right -> lighter mode
@@ -480,24 +495,23 @@ private fun ModeStrip(
                             // Selection change re-fires the LaunchedEffect, which settles from here.
                             onSelect(modes[next])
                         } else {
-                            scope.launch { translation.animateTo(offsetForIndex(selectedIndex), settleSpec) }
+                            settleTo(offsetForIndex(selectedIndex))
                         }
                     },
                     onDragCancel = {
                         dragging = false
-                        scope.launch { translation.animateTo(offsetForIndex(selectedIndex), settleSpec) }
+                        settleTo(offsetForIndex(selectedIndex))
                     },
                 ) { change, dragAmount ->
                     change.consume()
-                    scope.launch {
-                        translation.snapTo((translation.value + dragAmount).coerceIn(minOffset, maxOffset))
-                    }
+                    // Synchronous, allocation-free position update — the fix for per-frame GC churn.
+                    offsetX = (offsetX + dragAmount).coerceIn(minOffset, maxOffset)
                 }
             },
         contentAlignment = Alignment.Center,
     ) {
-        // graphicsLayer translates in the draw phase only — no relayout per touch frame.
-        Row(modifier = Modifier.graphicsLayer { translationX = translation.value }) {
+        // graphicsLayer reads offsetX in the draw phase only — no relayout per touch frame.
+        Row(modifier = Modifier.graphicsLayer { translationX = offsetX }) {
             modes.forEach { mode ->
                 ModeLabel(
                     mode = mode,
