@@ -1,7 +1,6 @@
 import base64
 import os
 import re
-from image_preprocessing import preprocess_image
 
 import requests
 from dotenv import load_dotenv
@@ -13,7 +12,6 @@ MODEL = "google/gemini-3-flash-preview"
 
 
 def analyze_image(image_bytes):
-    processed_image = preprocess_image(image_bytes)
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     payload = {
         "model": MODEL,
