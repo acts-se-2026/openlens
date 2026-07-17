@@ -16,6 +16,8 @@ import kotlinx.serialization.Serializable
 internal data class KratosFlow(
     val id: String,
     val ui: KratosUi,
+    /** Present only on flows initialized with `return_session_token_exchange_code=true` (native OIDC). */
+    @SerialName("session_token_exchange_code") val sessionTokenExchangeCode: String? = null,
 )
 
 @Serializable
@@ -71,4 +73,20 @@ internal data class PasswordLogin(
 @Serializable
 internal data class LogoutBody(
     @SerialName("session_token") val sessionToken: String,
+)
+
+/** Payload for submitting the OIDC method (social sign-in) to a login/registration flow. */
+@Serializable
+internal data class OidcSubmit(
+    val provider: String,
+    val method: String = "oidc",
+)
+
+/**
+ * Kratos's 422 response when a flow needs the browser to go somewhere (the Google consent page,
+ * for OIDC). The app opens [redirectBrowserTo] in a browser to continue the flow.
+ */
+@Serializable
+internal data class BrowserLocationChange(
+    @SerialName("redirect_browser_to") val redirectBrowserTo: String,
 )

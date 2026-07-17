@@ -25,6 +25,8 @@ fun LoginScreen(
     onLoggedIn: () -> Unit,
     onNavigateToRegister: () -> Unit,
     login: suspend (identifier: String, password: String) -> AuthResult,
+    onGoogleSignIn: () -> Unit,
+    googleError: String?,
 ) {
     var identifier by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -68,9 +70,11 @@ fun LoginScreen(
             onImeAction = { submit() },
             enabled = !loading,
         )
-        AuthError(error)
+        AuthError(error ?: googleError)
         Spacer(Modifier.height(20.dp))
         AuthPrimaryButton(text = "Log in", enabled = canSubmit, loading = loading, onClick = { submit() })
+        Spacer(Modifier.height(12.dp))
+        AuthSecondaryButton(text = "Continue with Google", enabled = !loading, onClick = onGoogleSignIn)
         Spacer(Modifier.height(14.dp))
         AuthLinkRow(
             prompt = "New here?",

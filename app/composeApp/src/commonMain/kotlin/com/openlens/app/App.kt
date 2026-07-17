@@ -9,6 +9,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -21,7 +22,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openlens.app.auth.AuthGraph
+import com.openlens.app.auth.AuthResult
+import com.openlens.app.auth.GoogleLoginStart
+import com.openlens.app.auth.OidcBridge
 import com.openlens.app.auth.rememberTokenStorage
+import com.openlens.app.auth.rememberUrlOpener
 import com.openlens.app.camera.CameraPreview
 import com.openlens.app.camera.rememberCameraController
 import com.openlens.app.scan.ScanResult
@@ -58,13 +63,41 @@ fun App() {
             val repository = AuthGraph.scanRepository
             val controller = rememberCameraController()
             val scope = rememberCoroutineScope()
+            val openUrl = rememberUrlOpener()
 
             var screen: Screen by remember { mutableStateOf(Screen.Restoring) }
+            var googleError: String? by remember { mutableStateOf(null) }
 
             // Restore an existing login before showing anything: a valid session skips straight to
             // the camera; otherwise (no token, or refresh rejected) land on Login.
             LaunchedEffect(Unit) {
                 screen = if (authRepository.validateSession()) Screen.Capture else Screen.Login
+            }
+
+            // Kick off Google sign-in: get the Google URL from Kratos and open it in a browser.
+            // The result comes back later via the OIDC deep link (handled just below).
+            fun startGoogleSignIn() {
+                googleError = null
+                scope.launch {
+                    when (val start = authRepository.beginGoogleLogin()) {
+                        is GoogleLoginStart.OpenBrowser -> openUrl(start.url)
+                        is GoogleLoginStart.Error -> googleError = start.message
+                    }
+                }
+            }
+
+            // Receive the `code` from openlens://oidc-callback, exchange it for a session, and enter
+            // the app. DisposableEffect clears the listener if this composable ever leaves.
+            DisposableEffect(Unit) {
+                OidcBridge.onCode = { code ->
+                    scope.launch {
+                        when (val result = authRepository.completeGoogleLogin(code)) {
+                            AuthResult.Success -> { googleError = null; screen = Screen.Capture }
+                            is AuthResult.Error -> googleError = result.message
+                        }
+                    }
+                }
+                onDispose { OidcBridge.onCode = null }
             }
 
             Box(Modifier.fillMaxSize()) {
@@ -81,15 +114,19 @@ fun App() {
                     Screen.Login ->
                         LoginScreen(
                             onLoggedIn = { screen = Screen.Capture },
-                            onNavigateToRegister = { screen = Screen.Register },
+                            onNavigateToRegister = { googleError = null; screen = Screen.Register },
                             login = authRepository::login,
+                            onGoogleSignIn = { startGoogleSignIn() },
+                            googleError = googleError,
                         )
 
                     Screen.Register ->
                         RegisterScreen(
                             onRegistered = { screen = Screen.Capture },
-                            onNavigateToLogin = { screen = Screen.Login },
+                            onNavigateToLogin = { googleError = null; screen = Screen.Login },
                             register = authRepository::register,
+                            onGoogleSignIn = { startGoogleSignIn() },
+                            googleError = googleError,
                         )
 
                     Screen.Capture ->

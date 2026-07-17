@@ -5,6 +5,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -33,6 +34,11 @@ class RemoteAuthRepository(
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    // Native OIDC spans an app→browser→app round-trip. beginGoogleLogin() stashes the flow's
+    // one-time "init code" here; completeGoogleLogin() pairs it with the code the browser returns.
+    // In-memory is fine for the sandbox (a process death mid-browser just means restarting sign-in).
+    private var googleInitCode: String? = null
+
     override suspend fun register(username: String, email: String, password: String): AuthResult =
         submitFlow(flowType = "registration") { action ->
             publicClient.post(action) {
@@ -53,6 +59,51 @@ class RemoteAuthRepository(
                 setBody(PasswordLogin(identifier = identifier.trim(), password = password))
             }
         }
+
+    override suspend fun beginGoogleLogin(): GoogleLoginStart {
+        return try {
+            // 1) Init an OIDC login flow asking Kratos for a native token-exchange code, and telling
+            //    it to redirect back to our app deep link when the browser dance finishes.
+            val flow: KratosFlow = publicClient.get("$kratosUrl/self-service/login/api") {
+                parameter("return_session_token_exchange_code", "true")
+                parameter("return_to", RETURN_TO)
+            }.body()
+            googleInitCode = flow.sessionTokenExchangeCode
+                ?: return GoogleLoginStart.Error("Google sign-in isn't available right now.")
+
+            // 2) Submit the oidc method. Kratos replies 422 + the Google URL to open in a browser.
+            val response = publicClient.post(flow.ui.action) {
+                contentType(ContentType.Application.Json)
+                setBody(OidcSubmit(provider = "google"))
+            }
+            val redirect: BrowserLocationChange = response.body()
+            GoogleLoginStart.OpenBrowser(redirect.redirectBrowserTo)
+        } catch (_: Exception) {
+            GoogleLoginStart.Error("Couldn't start Google sign-in. Check your connection and try again.")
+        }
+    }
+
+    override suspend fun completeGoogleLogin(returnCode: String): AuthResult {
+        val initCode = googleInitCode
+            ?: return AuthResult.Error("Google sign-in expired. Please try again.")
+        return try {
+            // Swap the init code (ours) + the return code (from the deep link) for a session token.
+            val response = publicClient.get("$kratosUrl/sessions/token-exchange") {
+                parameter("init_code", initCode)
+                parameter("return_to_code", returnCode)
+            }
+            if (response.status.isSuccess()) {
+                val success: KratosSuccess = response.body()
+                tokenStorage.save(success.sessionToken)
+                googleInitCode = null
+                AuthResult.Success
+            } else {
+                AuthResult.Error("Google sign-in didn't complete. Please try again.")
+            }
+        } catch (_: Exception) {
+            AuthResult.Error("Couldn't finish Google sign-in. Check your connection and try again.")
+        }
+    }
 
     override suspend fun validateSession(): Boolean {
         val token = tokenStorage.sessionToken() ?: return false
@@ -102,6 +153,11 @@ class RemoteAuthRepository(
             return AuthResult.Success
         }
         return AuthResult.Error(errorMessage(response))
+    }
+
+    private companion object {
+        /** Deep link Kratos redirects to after OIDC; must match the Android manifest + allowed_return_urls. */
+        const val RETURN_TO = "openlens://oidc-callback"
     }
 
     /** Pull Kratos's own messages out of a failed (re-rendered) flow, falling back to a generic line. */

@@ -1,6 +1,7 @@
 package com.openlens.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -173,6 +174,35 @@ internal fun AuthPrimaryButton(
                 fontWeight = FontWeight.Medium,
             )
         }
+    }
+}
+
+/** Secondary CTA — outlined, for alternative actions like social sign-in next to the primary button. */
+@Composable
+internal fun AuthSecondaryButton(
+    text: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .border(
+                width = 1.dp,
+                color = OpenLensColors.TextLo.copy(alpha = if (enabled) 0.5f else 0.2f),
+                shape = RoundedCornerShape(14.dp),
+            )
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 15.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = if (enabled) OpenLensColors.TextHi else OpenLensColors.TextLo,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 

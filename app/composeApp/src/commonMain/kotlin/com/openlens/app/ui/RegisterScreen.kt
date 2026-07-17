@@ -25,6 +25,8 @@ fun RegisterScreen(
     onRegistered: () -> Unit,
     onNavigateToLogin: () -> Unit,
     register: suspend (username: String, email: String, password: String) -> AuthResult,
+    onGoogleSignIn: () -> Unit,
+    googleError: String?,
 ) {
     var username by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -77,7 +79,7 @@ fun RegisterScreen(
             onImeAction = { submit() },
             enabled = !loading,
         )
-        AuthError(error)
+        AuthError(error ?: googleError)
         Spacer(Modifier.height(20.dp))
         AuthPrimaryButton(
             text = "Create account",
@@ -85,6 +87,8 @@ fun RegisterScreen(
             loading = loading,
             onClick = { submit() },
         )
+        Spacer(Modifier.height(12.dp))
+        AuthSecondaryButton(text = "Continue with Google", enabled = !loading, onClick = onGoogleSignIn)
         Spacer(Modifier.height(14.dp))
         AuthLinkRow(
             prompt = "Already have an account?",
