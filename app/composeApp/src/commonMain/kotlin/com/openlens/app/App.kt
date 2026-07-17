@@ -8,11 +8,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.openlens.app.camera.CameraPreview
 import com.openlens.app.camera.rememberCameraController
 import com.openlens.app.scan.RemoteScanRepository
+import com.openlens.app.scan.ScanMode
 import com.openlens.app.scan.ScanResult
 import com.openlens.app.ui.CaptureScreen
 import com.openlens.app.ui.ResultScreen
@@ -22,7 +25,7 @@ import com.openlens.app.ui.theme.OpenLensTheme
 
 private sealed interface Screen {
     data object Capture : Screen
-    data class Scanning(val bytes: ByteArray) : Screen
+    data class Scanning(val bytes: ByteArray, val model: ScanMode) : Screen
     data class Result(val bytes: ByteArray, val result: ScanResult) : Screen
 }
 
@@ -33,6 +36,11 @@ fun App() {
             val repository = remember { RemoteScanRepository() }
             val controller = rememberCameraController()
             var screen: Screen by remember { mutableStateOf(Screen.Capture) }
+            // Hoisted above the screen switch so the chosen tier survives Capture -> Result -> Capture
+            // (and rotation / process death, via the name-based saver).
+            var selectedMode by rememberSaveable(
+                stateSaver = Saver(save = { it.name }, restore = { ScanMode.valueOf(it) }),
+            ) { mutableStateOf(ScanMode.Default) }
 
             Box(Modifier.fillMaxSize()) {
                 // One long-lived camera preview under everything, kept in composition across Capture
@@ -48,14 +56,16 @@ fun App() {
                     is Screen.Capture ->
                         CaptureScreen(
                             controller = controller,
-                            onCaptured = { bytes -> screen = Screen.Scanning(bytes) },
+                            selectedMode = selectedMode,
+                            onModeSelected = { selectedMode = it },
+                            onCaptured = { bytes -> screen = Screen.Scanning(bytes, selectedMode) },
                         )
 
                     is Screen.Scanning -> {
                         ScanningScreen(bytes = current.bytes)
                         LaunchedEffect(current) {
                             val result = try {
-                                repository.identify(current.bytes)
+                                repository.identify(current.bytes, current.model)
                             } catch (e: Exception) {
                                 // Show the failure on the result sheet instead of crashing the app.
                                 ScanResult(
