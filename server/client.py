@@ -1,10 +1,17 @@
 import base64
+import os
 import requests
 import re
 
+from dotenv import load_dotenv
+
 from image_prep import image_preprocessing
 
-API_KEY = "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"
+load_dotenv()
+
+API_KEY = os.getenv("OPENROUTER_API_KEY")
+if not API_KEY:
+    raise RuntimeError("OPENROUTER_API_KEY is not set. Copy .env.example to .env and add your key.")
 
 MODELS = {
     "fast": "openai/gpt-5.6-luna",
@@ -29,13 +36,13 @@ def analyze_image(image_bytes, model="balanced"):
                     {
                         "type": "text",
                         "text": (
-                            "Return the answer using exactly two XML tags: <title> and <description>. "
-                            "Inside <title>, write a short and specific title of 2-6 words that clearly identifies what is visible in the image. "
+                            "Return the answer using exactly two XML tags: <heading> and <description>. "
+                            "Inside <heading>, write a short and specific title of 2-6 words that clearly identifies what is visible in the image. "
                             "Inside <description>, identify the main subject and describe it in one concise, factual paragraph of 2-3 sentences. "
                             "Include distinctive colors, materials, shapes, context, and any readable text that would help a visual search engine find similar objects or scenes. "
                             "Avoid decorative language, unsupported assumptions, and phrases such as 'The image shows'. "
                             "Express uncertain identifications cautiously using words such as 'likely', 'possibly', or 'appears to be'. "
-                            "Use this exact output format: <title>Specific image title</title><description>Concise factual description.</description>"
+                            "Use this exact output format: <heading>Specific image title</heading><description>Concise factual description.</description>"
                         )
                     },
                     {
