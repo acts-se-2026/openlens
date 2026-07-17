@@ -57,7 +57,7 @@ def analyze_image(image_bytes, model="balanced"):
     }
 
     response = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
+        "http://89.169.96.173:8000/v1/chat/completions",
         headers={
             "Authorization": f"Bearer {API_KEY}",
             "Content-Type": "application/json"
