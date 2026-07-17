@@ -10,4 +10,5 @@ dependencies = [
     "requests>=2.31.0",
     "uvicorn[standard]>=0.51.0",
     "pillow>=11.0.0",
+    "ultralytics>=8.4.98",
 ]
