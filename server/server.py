@@ -6,7 +6,7 @@ app = FastAPI()
 @app.post("/image_to_model")
 async def image_to_model(file: UploadFile = File(...), model: str = Form("free")):
     image_bytes = await file.read()
-    result = analyze_image(image_bytes, model)
+    result = await analyze_image(image_bytes, model)
     return {
         "result": result
     }
