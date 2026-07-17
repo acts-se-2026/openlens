@@ -1,7 +1,7 @@
 import base64
 import requests
 
-from image_prep import image_preprocessing
+from .image_prep import image_preprocessing
 
 API_KEY = "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"
 
