@@ -33,7 +33,7 @@ fun RegisterScreen(
     var loading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    val canSubmit = username.isNotBlank() && email.isNotBlank() && password.length >= 8
+    val canSubmit = username.trim().length >= 3 && email.isNotBlank() && password.length >= 8
 
     fun submit() {
         if (loading || !canSubmit) return

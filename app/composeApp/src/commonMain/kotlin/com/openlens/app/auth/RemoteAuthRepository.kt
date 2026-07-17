@@ -39,7 +39,7 @@ class RemoteAuthRepository(
                 contentType(ContentType.Application.Json)
                 setBody(
                     PasswordRegistration(
-                        traits = RegistrationTraits(email = email.trim(), name = username.trim()),
+                        traits = RegistrationTraits(email = email.trim(), username = username.trim()),
                         password = password,
                     ),
                 )

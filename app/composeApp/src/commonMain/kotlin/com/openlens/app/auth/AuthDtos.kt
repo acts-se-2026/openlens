@@ -56,7 +56,7 @@ internal data class PasswordRegistration(
 @Serializable
 internal data class RegistrationTraits(
     val email: String,
-    val name: String,
+    val username: String,
 )
 
 /** Payload for a password-method login submit. */
