@@ -1,5 +1,6 @@
 package com.openlens.app.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -177,14 +178,13 @@ internal fun AuthPrimaryButton(
     }
 }
 
-/** Secondary CTA — outlined, for alternative actions like social sign-in next to the primary button. */
+/** Outlined "Continue with Google" button — the multicolour Google mark left of the label. */
 @Composable
-internal fun AuthSecondaryButton(
-    text: String,
+internal fun GoogleSignInButton(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    Box(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
@@ -195,10 +195,17 @@ internal fun AuthSecondaryButton(
             )
             .clickable(enabled = enabled, onClick = onClick)
             .padding(vertical = 15.dp),
-        contentAlignment = Alignment.Center,
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        Image(
+            imageVector = GoogleLogo,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(10.dp))
         Text(
-            text = text,
+            text = "Continue with Google",
             color = if (enabled) OpenLensColors.TextHi else OpenLensColors.TextLo,
             fontSize = 16.sp,
             fontWeight = FontWeight.Medium,

@@ -88,7 +88,7 @@ fun RegisterScreen(
             onClick = { submit() },
         )
         Spacer(Modifier.height(12.dp))
-        AuthSecondaryButton(text = "Continue with Google", enabled = !loading, onClick = onGoogleSignIn)
+        GoogleSignInButton(enabled = !loading, onClick = onGoogleSignIn)
         Spacer(Modifier.height(14.dp))
         AuthLinkRow(
             prompt = "Already have an account?",
