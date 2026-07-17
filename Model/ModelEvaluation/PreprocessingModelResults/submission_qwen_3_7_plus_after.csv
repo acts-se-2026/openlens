@@ -1,0 +1,11 @@
+﻿image_path,model,variant,status,response_time_seconds,format_ok,heading,description,ai_response
+../ImageDataset/Blurry_city.jpg,qwen/qwen3.7-plus,after,error,1.76,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/camouflaged_animal.jpg,qwen/qwen3.7-plus,after,error,3.94,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/crowded_market.jpg,qwen/qwen3.7-plus,after,error,2.9,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/cyclist.jpg,qwen/qwen3.7-plus,after,error,3.47,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/dark_light_man.jpg,qwen/qwen3.7-plus,after,error,2.93,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/distant_road_sign.jpg,qwen/qwen3.7-plus,after,error,3.98,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/insect.jpg,qwen/qwen3.7-plus,after,error,2.97,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/night_traffic_blur.jpg,qwen/qwen3.7-plus,after,error,2.56,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/rain_window_reflection.jpg,qwen/qwen3.7-plus,after,error,1.73,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/smoke_ships.jpg,qwen/qwen3.7-plus,after,error,1.84,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions

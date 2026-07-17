@@ -1,0 +1,11 @@
+﻿image_path,model,variant,status,response_time_seconds,format_ok,heading,description,ai_response
+../ImageDataset/Blurry_city.jpg,google/gemini-3.1-flash-lite,after,error,1.77,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/camouflaged_animal.jpg,google/gemini-3.1-flash-lite,after,error,3.85,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/crowded_market.jpg,google/gemini-3.1-flash-lite,after,error,3.28,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/cyclist.jpg,google/gemini-3.1-flash-lite,after,error,3.37,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/dark_light_man.jpg,google/gemini-3.1-flash-lite,after,error,2.73,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/distant_road_sign.jpg,google/gemini-3.1-flash-lite,after,error,3.52,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/insect.jpg,google/gemini-3.1-flash-lite,after,error,2.84,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/night_traffic_blur.jpg,google/gemini-3.1-flash-lite,after,error,3.83,False,,,ERROR: 402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/rain_window_reflection.jpg,google/gemini-3.1-flash-lite,after,error,1.67,False,,,ERROR: 402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+../ImageDataset/smoke_ships.jpg,google/gemini-3.1-flash-lite,after,error,1.68,False,,,ERROR: 403 Client Error: Forbidden for url: https://openrouter.ai/api/v1/chat/completions

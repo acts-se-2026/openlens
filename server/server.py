@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File
-from client import analyze_image
+from .client import analyze_image
 
 app = FastAPI()
 
