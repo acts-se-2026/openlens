@@ -10,7 +10,13 @@ import io.ktor.http.HttpHeaders
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
-private val json = Json { ignoreUnknownKeys = true }
+// encodeDefaults = true is essential: the flow payloads carry `method = "password"` as a default,
+// and without this kotlinx.serialization drops it — Kratos then can't pick a strategy ("Could not
+// find a strategy to sign you up with"). ignoreUnknownKeys lets us model only the flow fields we read.
+private val json = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+}
 
 private const val TIMEOUT_MS = 60_000L
 
