@@ -31,8 +31,12 @@ def test_cat_image():
     end = time.perf_counter()
     print(f"\nOne image time: {end - start:.2f} seconds")
     assert response.status_code == 200
-    result = response.json()["result"]
-    assert "kitten" in result.lower()
+    result = response.json()
+
+    text = result["Heading"] + " " + result["Body"]
+
+    assert "kitten" in text.lower()
+    assert "BoundingBox" in result
 
 
 async def send_image(path):
