@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -64,31 +65,84 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.openlens.app.camera.CameraPreview
-import com.openlens.app.camera.rememberCameraController
+import com.openlens.app.camera.CameraController
 import com.openlens.app.picker.rememberImagePickerLauncher
 import com.openlens.app.scan.ScanMode
 import com.openlens.app.ui.theme.OpenLensColors
+import com.openlens.app.util.BlurCheck
 import com.openlens.app.util.decodeImageBitmap
+import kotlin.coroutines.resume
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+
+/**
+ * Most times a blurry camera shot is silently recaptured before the manual "too blurry" prompt is
+ * shown. Bump this to try harder on its own; drop it to hand control back to the user sooner.
+ */
+private const val MAX_AUTO_RETAKES = 5
+
+/** How long to let the camera settle between a rejected blurry shot and the next auto-retake. */
+private const val AUTO_RETAKE_DELAY_MS = 300L
+
+/** Grab a single still from the camera, suspending until it arrives (null if none came back). */
+private suspend fun captureFrame(controller: CameraController): ByteArray? =
+    suspendCancellableCoroutine { cont ->
+        println("OL/gate captureFrame: calling takePicture")
+        controller.takePicture {
+            println("OL/gate captureFrame: callback got ${it?.size ?: -1} bytes")
+            cont.resume(it)
+        }
+    }
+
+/**
+ * Silently reshoot a blurry camera frame, letting the camera settle between tries, until it reads
+ * sharp or the [MAX_AUTO_RETAKES] budget runs out. [firstBlurry] is the frame that just failed; no UI
+ * is shown while this runs. Returns the frame to act on paired with whether it's still blurry — sharp
+ * (`false`) once a good frame lands, or the last frame with `true` if the budget/camera gives out,
+ * leaving the caller to raise the manual prompt. Measures each frame it grabs exactly once.
+ */
+private suspend fun autoRetake(
+    controller: CameraController,
+    firstBlurry: ByteArray,
+): Pair<ByteArray, Boolean> {
+    var last = firstBlurry
+    repeat(MAX_AUTO_RETAKES) { i ->
+        delay(AUTO_RETAKE_DELAY_MS)
+        val next = captureFrame(controller) ?: run {
+            println("OL/gate autoRetake[$i]: null frame, giving up")
+            return last to true
+        }
+        val score = BlurCheck.score(next)
+        println("OL/gate autoRetake[$i]: score=$score threshold=${BlurCheck.THRESHOLD}")
+        if (score == null || score >= BlurCheck.THRESHOLD) return next to false
+        last = next
+    }
+    return last to true
+}
 
 /** Home: full-bleed camera with a neutral shutter that captures a frame. The gallery button on the
- * shutter's left imports an existing photo through the platform picker instead. */
+ * shutter's left imports an existing photo through the platform picker instead. The live preview is
+ * owned by the caller ([controller]) and hoisted above this screen, so it survives the hop into
+ * scanning; this screen only draws the controls over it. */
 @Composable
 fun CaptureScreen(
+    controller: CameraController,
     selectedMode: ScanMode,
     onModeSelected: (ScanMode) -> Unit,
     onCaptured: (ByteArray) -> Unit,
 ) {
-    val controller = rememberCameraController()
+    val scope = rememberCoroutineScope()
 
     // Guards against firing overlapping captures (rapid taps) and gives feedback when the camera
     // hands back nothing — e.g. a tap while it's still warming up.
     var capturing by remember { mutableStateOf(false) }
+    // The blur gate runs between a capture/pick and navigation; freezes the controls while it does.
+    var checking by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(error) {
         if (error != null) {
@@ -98,18 +152,43 @@ fun CaptureScreen(
     }
 
     // A successful pick doesn't navigate straight away: the bytes are held here while the reveal
-    // animation grows the image out of the gallery button, then onCaptured fires.
+    // animation grows the image out of the gallery button, then the blur gate runs.
     var picked by remember { mutableStateOf<ByteArray?>(null) }
     var galleryOrigin by remember { mutableStateOf<Offset?>(null) }
+    // Set when a shot exhausts its auto-retakes and still reads blurry: shows the "too blurry" prompt
+    // over the frame instead of navigating on. Retake clears it; Use anyway sends the shot through.
+    var blurryBytes by remember { mutableStateOf<ByteArray?>(null) }
     val galleryPicker = rememberImagePickerLauncher { bytes ->
         if (bytes != null) picked = bytes
         else error = "Couldn't load that image — try again"
     }
-    val busy = capturing || picked != null
+    val busy = capturing || checking || picked != null || blurryBytes != null
 
-    Box(Modifier.fillMaxSize().background(OpenLensColors.Bg)) {
-        CameraPreview(controller, Modifier.fillMaxSize())
+    // Sharpness gate shared by both capture paths: measure the frame off the main thread, then route
+    // it. A sharp frame is handed on; a blurry *camera* shot is passed to [autoRetake] to be reshot
+    // silently; a blurry *gallery* pick can't be re-shot, so it goes straight to the manual prompt.
+    // An undecodable image scores as "can't tell" (never blurry), so the gate can't hard-block a shot
+    // it couldn't measure. Each distinct frame is measured exactly once (here or inside autoRetake).
+    fun review(bytes: ByteArray, canRetake: Boolean) {
+        checking = true
+        scope.launch {
+            val firstScore = BlurCheck.score(bytes)
+            println("OL/gate review: canRetake=$canRetake firstScore=$firstScore threshold=${BlurCheck.THRESHOLD} size=${bytes.size}")
+            val (finalBytes, blurry) = when {
+                firstScore == null || firstScore >= BlurCheck.THRESHOLD -> bytes to false
+                canRetake -> autoRetake(controller, bytes)
+                else -> bytes to true
+            }
+            println("OL/gate review: done blurry=$blurry")
+            capturing = false
+            checking = false
+            picked = null
+            if (blurry) blurryBytes = finalBytes else onCaptured(finalBytes)
+        }
+    }
 
+    // No background here: the caller's hoisted camera preview sits underneath and shows through.
+    Box(Modifier.fillMaxSize()) {
         // Bottom scrim: keeps the mode strip and controls legible over bright or white scenes.
         Box(
             modifier = Modifier
@@ -176,9 +255,12 @@ fun CaptureScreen(
                         capturing = true
                         error = null
                         controller.takePicture { bytes ->
-                            capturing = false
-                            if (bytes != null) onCaptured(bytes)
-                            else error = "Couldn't capture — try again"
+                            if (bytes != null) {
+                                review(bytes, canRetake = true)
+                            } else {
+                                capturing = false
+                                error = "Couldn't capture — try again"
+                            }
                         }
                     },
                 )
@@ -189,7 +271,20 @@ fun CaptureScreen(
             GalleryReveal(
                 bytes = bytes,
                 origin = galleryOrigin,
-                onFinished = { onCaptured(bytes) },
+                // A picked image can't be re-shot, so a blurry one goes straight to the manual prompt.
+                onFinished = { review(bytes, canRetake = false) },
+            )
+        }
+
+        // Over-the-frame soft gate; the offending image stays visible behind it.
+        blurryBytes?.let { bytes ->
+            BlurWarning(
+                bytes = bytes,
+                onRetake = { blurryBytes = null },
+                onUseAnyway = {
+                    blurryBytes = null
+                    onCaptured(bytes)
+                },
             )
         }
     }
@@ -568,5 +663,87 @@ private fun ModeLabel(
                 .clip(CircleShape)
                 .background(OpenLensColors.Accent),
         )
+    }
+}
+
+/**
+ * Full-screen soft gate shown when a shot scores below [BlurCheck.THRESHOLD]. The offending frame
+ * sits full-bleed under a scrim so the user can see what was blurry; [onRetake] dismisses back to the
+ * camera, [onUseAnyway] sends the shot on regardless. Deliberately non-blocking — a false positive on
+ * a genuinely sharp but low-texture subject costs one tap, never a trapped capture.
+ */
+@Composable
+private fun BlurWarning(bytes: ByteArray, onRetake: () -> Unit, onUseAnyway: () -> Unit) {
+    val image = remember(bytes) { decodeImageBitmap(bytes) }
+
+    Box(modifier = Modifier.fillMaxSize().background(OpenLensColors.Bg)) {
+        Image(
+            bitmap = image,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        // Darken the frame so the message and buttons stay legible over any scene.
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.62f)))
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .padding(horizontal = 40.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "Too blurry",
+                color = OpenLensColors.TextHi,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "This shot looks out of focus. Retake it for a sharper read.",
+                color = OpenLensColors.TextLo,
+                fontSize = 15.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 10.dp),
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(horizontal = 24.dp, vertical = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            // Primary: get a better shot.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(OpenLensColors.Accent)
+                    .clickable(onClick = onRetake)
+                    .padding(vertical = 15.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "Retake",
+                    color = OpenLensColors.OnAccent,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            // Secondary: proceed with the blurry shot anyway.
+            Box(
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable(onClick = onUseAnyway)
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(text = "Use anyway", color = OpenLensColors.TextLo, fontSize = 15.sp)
+            }
+        }
     }
 }
