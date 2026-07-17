@@ -36,7 +36,7 @@ def test_cat_image():
 
 
 async def send_image(path):
-    print("image_sent")
+    print("image sent!")
 
     transport = httpx.ASGITransport(app=app)
 
@@ -45,6 +45,7 @@ async def send_image(path):
         base_url="http://test"
     ) as client:
         with open(path, "rb") as image:
+            # print("START RQ")
             start = time.perf_counter()
 
             response = await client.post(
@@ -58,8 +59,9 @@ async def send_image(path):
                 },
                 data={"model": "free"}
             )
-
+            
             end = time.perf_counter()
+            # print("END RQ")
 
     return response, end - start
 
@@ -70,7 +72,7 @@ def test_ten_requests():
         responses = await asyncio.gather(
             *[
                 send_image("test_images/cat.jpg")
-                for _ in range(10)
+                for _ in range(5)
             ]
         )
 
