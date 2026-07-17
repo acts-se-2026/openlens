@@ -1,18 +1,12 @@
 package com.openlens.app.auth
 
-import com.openlens.app.scan.Env
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.plugins.auth.Auth
-import io.ktor.client.plugins.auth.providers.BearerTokens
-import io.ktor.client.plugins.auth.providers.bearer
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
+import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.request.header
 import io.ktor.http.ContentType
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
+import io.ktor.http.HttpHeaders
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
@@ -21,9 +15,10 @@ private val json = Json { ignoreUnknownKeys = true }
 private const val TIMEOUT_MS = 60_000L
 
 /**
- * Client with NO bearer/refresh plugin, for the public auth endpoints (register/login/refresh/logout).
- * These endpoints use 401 to mean "bad credentials" — routing them through the refresh plugin would
- * wrongly interpret that as an expired access token and try to refresh.
+ * Client for Kratos's self-service flows (register / login / logout / whoami). Sends
+ * `Accept: application/json` so Kratos returns flow JSON instead of a browser redirect. It attaches
+ * no auth header of its own — the repository sets `X-Session-Token` explicitly on the calls that
+ * need it (whoami), so a stale token never rides along on a login/register attempt.
  */
 fun createPublicClient(): HttpClient = HttpClient {
     install(ContentNegotiation) { json(json) }
@@ -31,49 +26,24 @@ fun createPublicClient(): HttpClient = HttpClient {
         requestTimeoutMillis = TIMEOUT_MS
         socketTimeoutMillis = TIMEOUT_MS
     }
+    defaultRequest {
+        header(HttpHeaders.Accept, ContentType.Application.Json.toString())
+    }
 }
 
 /**
- * Client that attaches the access token to every request and, on a 401 from a protected endpoint,
- * calls /auth/refresh (via [publicClient], so the refresh call itself isn't intercepted → no
- * recursion), persists the **rotated** pair, and retries. Ktor's bearer provider serializes
- * concurrent refreshes, so N parallel 401s trigger a single refresh. Used for scans and /auth/me.
+ * Client for our FastAPI backend (scans). Attaches the stored Kratos session token as
+ * `Authorization: Bearer <token>` on every request — [tokenStorage] is read per call, so it always
+ * reflects the current login. There's no refresh dance: Kratos session tokens don't rotate, so a
+ * 401 just means the session is dead and the caller drops back to the login screen.
  */
-fun createAuthedClient(
-    tokenStorage: TokenStorage,
-    publicClient: HttpClient,
-    baseUrl: String = Env.ACTIVE.baseUrl,
-): HttpClient = HttpClient {
+fun createAuthedClient(tokenStorage: TokenStorage): HttpClient = HttpClient {
     install(ContentNegotiation) { json(json) }
     install(HttpTimeout) {
         requestTimeoutMillis = TIMEOUT_MS
         socketTimeoutMillis = TIMEOUT_MS
     }
-    install(Auth) {
-        bearer {
-            loadTokens {
-                val access = tokenStorage.accessToken()
-                val refresh = tokenStorage.refreshToken()
-                if (access != null && refresh != null) BearerTokens(access, refresh) else null
-            }
-            // Attach the token proactively to our backend rather than waiting for a 401 first.
-            sendWithoutRequest { true }
-            refreshTokens {
-                val refresh = tokenStorage.refreshToken() ?: return@refreshTokens null
-                val response = publicClient.post("$baseUrl/auth/refresh") {
-                    contentType(ContentType.Application.Json)
-                    setBody(RefreshRequest(refresh))
-                }
-                if (response.status == HttpStatusCode.OK) {
-                    val pair: TokenPairDto = response.body()
-                    tokenStorage.save(pair.accessToken, pair.refreshToken)
-                    BearerTokens(pair.accessToken, pair.refreshToken)
-                } else {
-                    // Refresh token expired / rotated out / revoked — the session is dead.
-                    tokenStorage.clear()
-                    null
-                }
-            }
-        }
+    defaultRequest {
+        tokenStorage.sessionToken()?.let { header(HttpHeaders.Authorization, "Bearer $it") }
     }
 }

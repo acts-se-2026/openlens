@@ -16,9 +16,9 @@ import com.openlens.app.auth.AuthResult
 import kotlinx.coroutines.launch
 
 /**
- * Log in with an email OR username (the backend accepts either as `identifier`) plus a password.
- * On success [onLoggedIn] fires; the screen stays in its loading state because it's about to be
- * replaced. Errors surface inline without leaving the screen.
+ * Log in with an email (Kratos's password identifier) plus a password. On success [onLoggedIn]
+ * fires; the screen stays in its loading state because it's about to be replaced. Errors surface
+ * inline without leaving the screen.
  */
 @Composable
 fun LoginScreen(
@@ -53,7 +53,7 @@ fun LoginScreen(
         AuthTextField(
             value = identifier,
             onValueChange = { identifier = it; error = null },
-            label = "Email or username",
+            label = "Email",
             keyboardType = KeyboardType.Email,
             imeAction = ImeAction.Next,
             enabled = !loading,

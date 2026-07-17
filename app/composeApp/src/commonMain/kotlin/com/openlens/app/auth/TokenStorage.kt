@@ -4,33 +4,28 @@ import androidx.compose.runtime.Composable
 import com.liftric.kvault.KVault
 
 /**
- * Secure on-device storage for the JWT access + refresh tokens, backed by KVault (Android
- * EncryptedSharedPreferences + Keystore, iOS Keychain). Both tokens — the long-lived refresh token
- * especially — live in platform secure storage, never plain prefs. KVault's ops are synchronous, so
- * no suspend is needed.
+ * Secure on-device storage for the Kratos session token (the `ory_st_…` string), backed by KVault
+ * (Android EncryptedSharedPreferences + Keystore, iOS Keychain) — never plain prefs. Kratos uses a
+ * single opaque session token (no access/refresh split, no rotation), so there's just one value to
+ * hold. KVault's ops are synchronous, so no suspend is needed.
  */
 class TokenStorage(private val kvault: KVault) {
 
-    fun save(accessToken: String, refreshToken: String) {
-        kvault.set(KEY_ACCESS, accessToken)
-        kvault.set(KEY_REFRESH, refreshToken)
+    fun save(sessionToken: String) {
+        kvault.set(KEY_SESSION, sessionToken)
     }
 
-    fun accessToken(): String? = kvault.string(forKey = KEY_ACCESS)
+    fun sessionToken(): String? = kvault.string(forKey = KEY_SESSION)
 
-    fun refreshToken(): String? = kvault.string(forKey = KEY_REFRESH)
-
-    /** A restorable session = we still hold a refresh token (access alone is short-lived). */
-    fun hasSession(): Boolean = refreshToken() != null
+    /** A restorable session = we still hold a session token (validity is confirmed with Kratos). */
+    fun hasSession(): Boolean = sessionToken() != null
 
     fun clear() {
-        kvault.deleteObject(forKey = KEY_ACCESS)
-        kvault.deleteObject(forKey = KEY_REFRESH)
+        kvault.deleteObject(forKey = KEY_SESSION)
     }
 
     private companion object {
-        const val KEY_ACCESS = "auth.access_token"
-        const val KEY_REFRESH = "auth.refresh_token"
+        const val KEY_SESSION = "auth.session_token"
     }
 }
 

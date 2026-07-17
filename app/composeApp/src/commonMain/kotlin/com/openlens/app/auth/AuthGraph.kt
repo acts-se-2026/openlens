@@ -16,11 +16,13 @@ import io.ktor.client.HttpClient
 object AuthGraph {
     private var storage: TokenStorage? = null
 
+    // publicClient → Kratos self-service flows; authedClient → FastAPI scans (attaches the session
+    // token as a bearer). Both are process-lived singletons so an engine isn't leaked per Activity.
     private val publicClient: HttpClient by lazy { createPublicClient() }
-    private val authedClient: HttpClient by lazy { createAuthedClient(requireStorage(), publicClient) }
+    private val authedClient: HttpClient by lazy { createAuthedClient(requireStorage()) }
 
     val authRepository: AuthRepository by lazy {
-        RemoteAuthRepository(requireStorage(), publicClient, authedClient)
+        RemoteAuthRepository(requireStorage(), publicClient)
     }
     val scanRepository: ScanRepository by lazy {
         RemoteScanRepository(client = authedClient)
