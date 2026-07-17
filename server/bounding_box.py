@@ -1,16 +1,21 @@
 import io
-from pathlib import Path
+import os
 
+from dotenv import load_dotenv
 from PIL import Image
 from ultralytics import YOLO
 
 from image_prep import image_preprocessing
 
 
-MODEL_PATH = Path(__file__).resolve().parents[1] / "BoundingBox" / "yolo26n.pt"
+load_dotenv()
 
-model = YOLO(str(MODEL_PATH))
+MODEL_PATH = os.getenv("YOLO_MODEL_PATH")
 
+if not MODEL_PATH:
+    raise RuntimeError("YOLO_MODEL_PATH is not set in the .env file.")
+
+model = YOLO(MODEL_PATH)
 
 def create_point(x, y, image_width, image_height):
     return {
