@@ -268,7 +268,7 @@ async def image_to_model(
                 parsed_region,
             )
 
-        model_result, bounding_box_result, related_content = await asyncio.gather(
+        model_result, bounding_box_result = await asyncio.gather(
             run_in_threadpool(
                 _analyze_image,
                 analysis_image_bytes,
@@ -277,10 +277,6 @@ async def image_to_model(
             ),
             run_in_threadpool(
                 _safe_detect_main_area,
-                analysis_image_bytes,
-            ),
-            run_in_threadpool(
-                _safe_related_search,
                 analysis_image_bytes,
             ),
         )
@@ -301,14 +297,32 @@ async def image_to_model(
         "Body": model_result["body"],
         "BoundingBox": bounding_box_result["corners"],
         "DetectedObjects": bounding_box_result.get("detected_objects", []),
-        "SearchQuery": related_content["query"],
-        "RelatedImages": related_content["images"],
-        "RelatedLinks": related_content["links"],
         "ProcessingTime": round(processing_time, 2),
         "Balance": await run_in_threadpool(
             get_token_balance,
             user_id,
         ),
+    }
+
+
+@app.post("/related")
+async def related(
+    file: UploadFile = File(...),
+    identity: dict = Depends(get_current_identity),
+):
+    # Related image/link search, split out of /image_to_model so it never blocks the scan result.
+    # It's the slow part (two model calls + page scraping); the app fetches it separately/lazily.
+    image_bytes = await file.read()
+
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="The uploaded image is empty")
+
+    result = await run_in_threadpool(_safe_related_search, image_bytes)
+
+    return {
+        "SearchQuery": result["query"],
+        "RelatedImages": result["images"],
+        "RelatedLinks": result["links"],
     }
 
 
