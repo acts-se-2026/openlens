@@ -8,7 +8,7 @@ import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from . import config
+import config
 
 # The app sends `Authorization: Bearer <kratos_session_token>`. auto_error=True → a missing or
 # malformed header is a 403 before our code runs; a present-but-invalid token becomes a 401 below.

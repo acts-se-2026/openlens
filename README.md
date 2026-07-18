@@ -35,11 +35,10 @@ Evaluation results are available in:
 ```text
 Model/ModelEvaluation
 ```
-
 # Tests
-In order to run testing files you have to open Command Promt or PowerShell, open the folder you are storing the project into and run command:
+Open your Command Prompt or Powershell, open the project folder and run command:
 ```text
-pytest
+pytest -s -v
 ```
 
 # Final Prompt
