@@ -66,6 +66,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openlens.app.camera.CameraController
@@ -75,6 +76,9 @@ import com.openlens.app.ui.theme.OpenLensColors
 import com.openlens.app.util.BlurCheck
 import com.openlens.app.util.decodeImageBitmap
 import kotlin.coroutines.resume
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -577,7 +581,7 @@ private fun ModeStrip(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(44.dp)
+            .height(60.dp) // taller than the bare labels to seat the coin-cost cue above each name
             .alpha(if (enabled) 1f else 0.5f)
             .pointerInput(enabled, selectedIndex) {
                 if (!enabled) return@pointerInput
@@ -632,7 +636,10 @@ private fun ModeStrip(
     }
 }
 
-/** One label slot in [ModeStrip]: color/size lift when active, with a small accent dot beneath. */
+/**
+ * One label slot in [ModeStrip]: its token price on top (coin + cost), then the name — color/size
+ * lift when active — and a small accent dot beneath.
+ */
 @Composable
 private fun ModeLabel(
     mode: ScanMode,
@@ -660,6 +667,8 @@ private fun ModeLabel(
         ),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // Price of this tier, right above its name.
+        CostTag(cost = mode.tokenCost, active = active, modifier = Modifier.padding(bottom = 5.dp))
         Text(
             text = mode.label,
             color = color,
@@ -675,6 +684,80 @@ private fun ModeLabel(
                 .clip(CircleShape)
                 .background(OpenLensColors.Accent),
         )
+    }
+}
+
+/**
+ * The token price of a tier, shown above its name: a minted coin next to the number of coins the
+ * scan spends. Free tiers (cost 0) read in muted grey — "costs nothing" at a glance — while paid
+ * tiers glint gold. The whole tag sits at full strength for the selected tier and eases back to a
+ * quiet 55% for its neighbours, echoing the label's own focus lift.
+ */
+@Composable
+private fun CostTag(cost: Int, active: Boolean, modifier: Modifier = Modifier) {
+    val free = cost == 0
+    val tagAlpha by animateFloatAsState(
+        targetValue = if (active) 1f else 0.55f,
+        label = "costTagAlpha",
+    )
+    Row(
+        modifier = modifier.alpha(tagAlpha),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CoinGlyph(size = 13.dp, muted = free)
+        Text(
+            text = cost.toString(),
+            color = if (free) OpenLensColors.TextLo else OpenLensColors.CoinHi,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            style = TextStyle(shadow = Shadow(color = Color.Black.copy(alpha = 0.6f), blurRadius = 8f)),
+            modifier = Modifier.padding(start = 3.dp),
+        )
+    }
+}
+
+/**
+ * A tiny hand-minted coin, drawn rather than shipped as an asset so it stays crisp at any size and
+ * picks up the app's palette: a gold disc with a diagonal sheen, a lighter rim, and a stamped
+ * 4-point sparkle. [muted] renders it in neutral grey for zero-cost (free) tiers.
+ */
+@Composable
+private fun CoinGlyph(size: Dp, muted: Boolean, modifier: Modifier = Modifier) {
+    val face = if (muted) OpenLensColors.TextLo else OpenLensColors.Coin
+    val sheen = if (muted) OpenLensColors.TextHi.copy(alpha = 0.4f) else OpenLensColors.CoinHi
+    val stamp = OpenLensColors.Bg
+    Canvas(modifier.size(size)) {
+        val d = size.toPx()
+        val r = d / 2f
+        val c = Offset(r, r)
+        // Disc with a top-left-to-bottom-right sheen so it reads as a minted, slightly 3D coin.
+        drawCircle(
+            brush = Brush.linearGradient(colors = listOf(sheen, face), start = Offset(0f, 0f), end = Offset(d, d)),
+            radius = r,
+            center = c,
+        )
+        // Lighter rim ring just inside the edge.
+        drawCircle(
+            color = sheen,
+            radius = r - 0.6.dp.toPx(),
+            center = c,
+            style = Stroke(width = 1.dp.toPx()),
+            alpha = 0.85f,
+        )
+        // Stamped 4-point sparkle: alternate outer tips (up/right/down/left) with inner points.
+        val outer = r * 0.52f
+        val inner = r * 0.18f
+        val star = Path().apply {
+            for (k in 0 until 8) {
+                val ang = (-90f + k * 45f) * (PI.toFloat() / 180f)
+                val rad = if (k % 2 == 0) outer else inner
+                val px = c.x + rad * cos(ang)
+                val py = c.y + rad * sin(ang)
+                if (k == 0) moveTo(px, py) else lineTo(px, py)
+            }
+            close()
+        }
+        drawPath(path = star, color = stamp, alpha = if (muted) 0.5f else 0.72f)
     }
 }
 

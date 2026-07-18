@@ -14,6 +14,8 @@ object OpenLensColors {
     val OnAccent = Color(0xFF0E0E11) // dark content on the near-white accent
     val TextHi = Color(0xFFF5F5F7)
     val TextLo = Color(0xFF9A9AA2)
+    val Coin = Color(0xFFE8B24A)     // warm minted gold — token-cost coin face
+    val CoinHi = Color(0xFFF7D27E)   // lighter gold — coin sheen / rim highlight
 }
 
 private val colorScheme = darkColorScheme(
