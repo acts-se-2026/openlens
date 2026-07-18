@@ -33,6 +33,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.openlens.app.scan.DetectedBox
+import com.openlens.app.scan.Env
 import com.openlens.app.scan.NormRect
 import com.openlens.app.scan.ScanResult
 import com.openlens.app.ui.theme.OpenLensColors
@@ -49,6 +51,7 @@ import kotlinx.coroutines.launch
 fun ResultScreen(
     bytes: ByteArray,
     identify: suspend (NormRect) -> ScanResult,
+    detect: suspend (ByteArray) -> List<DetectedBox>,
     onScanAgain: () -> Unit,
 ) {
     val image = remember(bytes) { decodeImageBitmap(bytes) }
@@ -59,6 +62,8 @@ fun ResultScreen(
     var analyzing by remember { mutableStateOf(false) }
     var didInitialScan by remember { mutableStateOf(false) }
     var showDetail by remember { mutableStateOf(false) }
+    // Detected objects (image 0..1 coords), drawn as tappable suggestions. Empty on servers without YOLO.
+    var detections by remember { mutableStateOf<List<NormRect>>(emptyList()) }
     val scope = rememberCoroutineScope()
 
     fun scan() {
@@ -80,6 +85,13 @@ fun ResultScreen(
         }
     }
 
+    // Detection runs once, independent of the scan; empty results just mean no suggestions.
+    LaunchedEffect(Unit) {
+        val found = runCatching { detect(bytes) }.getOrDefault(emptyList()).map { it.rect }
+        // Fallback only in the dev build, so a prod server that legitimately finds nothing shows nothing.
+        detections = found.ifEmpty { if (Env.ACTIVE == Env.Dev) DEV_FALLBACK_DETECTIONS else emptyList() }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -92,9 +104,15 @@ fun ResultScreen(
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
+        val detectionsScreen = detections.map {
+            imageRectToOverlay(it, containerSize.width.toFloat(), containerSize.height.toFloat(), image.width, image.height)
+        }
         EditableFrameOverlay(
             rect = rect,
             onRectChange = { rect = it },
+            detections = detectionsScreen,
+            // Snap the frame to the tapped object; the user chooses when to Identify.
+            onDetectionTap = { snap -> rect = snap },
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -178,3 +196,23 @@ private fun overlayToImageRegion(rect: NormRect, cw: Float, ch: Float, iw: Int, 
     fun toNy(y: Float) = ((y * ch - oy) / dh).coerceIn(0f, 1f)
     return NormRect(toNx(rect.left), toNy(rect.top), toNx(rect.right), toNy(rect.bottom))
 }
+
+/** Inverse of [overlayToImageRegion]: image 0..1 coords -> overlay 0..1 coords (to draw detections). */
+private fun imageRectToOverlay(rect: NormRect, cw: Float, ch: Float, iw: Int, ih: Int): NormRect {
+    if (cw <= 0f || ch <= 0f || iw <= 0 || ih <= 0) return rect
+    val scale = maxOf(cw / iw, ch / ih)
+    val dw = iw * scale
+    val dh = ih * scale
+    val ox = (cw - dw) / 2f
+    val oy = (ch - dh) / 2f
+    fun toCx(x: Float) = (ox + x * dw) / cw
+    fun toCy(y: Float) = (oy + y * dh) / ch
+    return NormRect(toCx(rect.left), toCy(rect.top), toCx(rect.right), toCy(rect.bottom))
+}
+
+// DEV-ONLY canned detections (gated to Env.Dev) so the tappable-suggestion UX is visible on a server
+// without YOLO — this dev machine can't run it. Real /detect boxes replace these automatically.
+private val DEV_FALLBACK_DETECTIONS = listOf(
+    NormRect(0.14f, 0.20f, 0.52f, 0.72f),
+    NormRect(0.55f, 0.34f, 0.86f, 0.74f),
+)

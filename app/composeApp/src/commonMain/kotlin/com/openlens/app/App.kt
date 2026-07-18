@@ -194,6 +194,7 @@ fun App() {
                                 result.balance?.let { tokenBalance = it }
                                 result
                             },
+                            detect = repository::detect,
                             onScanAgain = { screen = Screen.Capture },
                         )
                 }
