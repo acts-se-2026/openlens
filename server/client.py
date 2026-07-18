@@ -17,7 +17,7 @@ MODELS = {
     "fast": "openai/gpt-5.6-luna",
     "balanced": "google/gemini-3-flash-preview",
     "deep": "openai/gpt-5.6-sol",
-    "free": "google/gemma-4-26b-a4b-it:free"
+    "free": "RedHatAI/gemma-4-31B-it-FP8-block"
 }
 
 
@@ -56,15 +56,27 @@ def analyze_image(image_bytes, model="balanced"):
         ]
     }
 
-    response = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json"
-        },
-        json=payload,
-        timeout=120
-    )
+    if model == "free":
+        response = requests.post(
+            "http://89.169.96.173:8000/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json=payload,
+            timeout=120
+        )
+    else:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json=payload,
+            timeout=120
+        )
+
 
     response.raise_for_status()
 

@@ -7,11 +7,11 @@ import kotlinx.coroutines.delay
  * without touching the UI; for now [FakeScanRepository] returns canned data.
  */
 interface ScanRepository {
-    suspend fun identify(image: ByteArray): ScanResult
+    suspend fun identify(image: ByteArray, model: ScanMode): ScanResult
 }
 
 class FakeScanRepository : ScanRepository {
-    override suspend fun identify(image: ByteArray): ScanResult {
+    override suspend fun identify(image: ByteArray, model: ScanMode): ScanResult {
         delay(1200) // simulate round-trip so the Scanning state is visible
         return ScanResult(
             label = "invisible fart",
