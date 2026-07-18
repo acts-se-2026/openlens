@@ -79,7 +79,7 @@ def get_preview_image(page_url):
         response = requests.get(
             page_url,
             headers=PAGE_HEADERS,
-            timeout=5,
+            timeout=2.5,
             allow_redirects=True,
             stream=True,
         )
@@ -99,7 +99,7 @@ def get_preview_image(page_url):
         for chunk in response.iter_content(chunk_size=8192):
             html_bytes.extend(chunk)
 
-            if len(html_bytes) >= 350_000:
+            if len(html_bytes) >= 150_000:
                 break
 
         encoding = response.encoding or "utf-8"
@@ -177,7 +177,7 @@ def extract_citations(message):
     return citations
 
 
-def search_related_content(query, count=6):
+def search_related_content(query, count=4):
     payload = {
         "model": SEARCH_MODEL,
         "messages": [
@@ -230,7 +230,7 @@ def search_related_content(query, count=6):
             "links": [],
         }
 
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         preview_images = list(
             executor.map(
                 get_preview_image,
