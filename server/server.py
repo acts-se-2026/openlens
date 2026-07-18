@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -15,6 +16,7 @@ from database import (
     user_exists,
 )
 from kratos import get_current_identity
+from search_client import search_related_content
 
 try:
     from bounding_box import detect_main_area
@@ -57,12 +59,22 @@ async def balance(identity: dict = Depends(get_current_identity)):
     return {"balance": await run_in_threadpool(get_token_balance, user_id)}
 
 
+def safe_related_search(image_bytes):
+    try:
+        return search_related_content(image_bytes, count=4)
+    except Exception as error:
+        print(f"Related-content search failed: {error}")
+        return {"query": "", "images": [], "links": []}
+
+
 @app.post("/image_to_model")
 async def image_to_model(
     file: UploadFile = File(...),
     model: str = Form("free"),
     identity: dict = Depends(get_current_identity),  # gated: requires a valid Kratos session
 ):
+    request_start = time.perf_counter()
+
     # Kratos owns identity; the wallet is keyed on the identity id.
     user_id = identity["id"]
     image_bytes = await file.read()  # read before charging so a bad upload never costs tokens
@@ -76,18 +88,24 @@ async def image_to_model(
 
     try:
         if detect_main_area is None:
-            model_result = await run_in_threadpool(analyze_image, image_bytes, model)
+            model_result, related_content = await asyncio.gather(
+                run_in_threadpool(analyze_image, image_bytes, model),
+                run_in_threadpool(safe_related_search, image_bytes),
+            )
             bounding_box_result = {"corners": None, "detected_objects": []}
         else:
-            model_result, bounding_box_result = await asyncio.gather(
+            model_result, bounding_box_result, related_content = await asyncio.gather(
                 run_in_threadpool(analyze_image, image_bytes, model),
                 run_in_threadpool(detect_main_area, image_bytes),
+                run_in_threadpool(safe_related_search, image_bytes),
             )
     except Exception:
         # A failed scan must not cost the user — hand the tokens back.
         if cost > 0:
             await run_in_threadpool(refund_tokens, user_id, cost)
         raise
+
+    processing_time = time.perf_counter() - request_start
 
     # The post-charge balance rides along in the response, so the app never needs a separate
     # /balance call after a scan — it just reads this field.
@@ -96,5 +114,9 @@ async def image_to_model(
         "Body": model_result["body"],
         "BoundingBox": bounding_box_result["corners"],
         "DetectedObjects": bounding_box_result["detected_objects"],
+        "SearchQuery": related_content["query"],
+        "RelatedImages": related_content["images"],
+        "RelatedLinks": related_content["links"],
+        "ProcessingTime": round(processing_time, 2),
         "Balance": await run_in_threadpool(get_token_balance, user_id),
     }
