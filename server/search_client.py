@@ -1,9 +1,12 @@
+import argparse
+import csv
+import io
+import json
+import math
 import os
-import re
-from concurrent.futures import ThreadPoolExecutor
-from html.parser import HTMLParser
-from urllib.parse import urljoin, urlparse
-import base64
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
@@ -11,282 +14,401 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-SEARCH_MODEL = "google/gemini-3-flash-preview"
+MODEL_ID = os.getenv(
+    "SIGLIP_MODEL_ID",
+    "google/siglip2-so400m-patch16-naflex",
+)
+DATA_URL_TEMPLATE = os.getenv(
+    "PD12M_DATA_URL_TEMPLATE",
+    (
+        "https://huggingface.co/datasets/Intelligent-Internet/"
+        "pd12m/resolve/main/data/{shard}.csv"
+    ),
+)
 
-PAGE_HEADERS = {
-    "User-Agent": "OpenLens/1.0 student project",
-}
+SERVER_FOLDER = Path(__file__).resolve().parent
+INDEX_FOLDER = Path(
+    os.getenv("PD12M_INDEX_DIR", SERVER_FOLDER / "pd12m_index")
+)
+VECTORS_PATH = INDEX_FOLDER / "vectors.npy"
+METADATA_PATH = INDEX_FOLDER / "metadata.json"
 
+VECTOR_DIMENSION = 1152
+DEFAULT_INDEX_SIZE = 10_000
+DEFAULT_SHARD_COUNT = 10
+DEVICE = "cpu"
 
-class OpenGraphParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.images = {}
+_model = None
+_processor = None
+_torch = None
+_vectors = None
+_metadata = None
 
-    def handle_starttag(self, tag, attributes):
-        if tag.lower() != "meta":
-            return
-
-        attributes = dict(attributes)
-
-        property_name = (
-            attributes.get("property")
-            or attributes.get("name")
-            or ""
-        ).lower()
-
-        content = attributes.get("content")
-
-        if property_name in {
-            "og:image",
-            "twitter:image",
-            "twitter:image:src",
-        } and content:
-            self.images[property_name] = content
-
-    def get_image(self):
-        return (
-            self.images.get("og:image")
-            or self.images.get("twitter:image")
-            or self.images.get("twitter:image:src")
-        )
+_model_lock = threading.Lock()
+_index_lock = threading.Lock()
+_inference_lock = threading.Lock()
 
 
-def get_openrouter_headers():
-    api_key = os.getenv("OPENROUTER_API_KEY")
+def read_shard(shard_index, item_limit):
+    import numpy as np
 
-    if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY is not set.")
+    vectors = []
+    metadata = []
+    shard_name = f"{shard_index:07d}"
+    shard_url = DATA_URL_TEMPLATE.format(shard=shard_name)
 
-    return {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
+    response = requests.get(shard_url, stream=True, timeout=(30, 600))
+    response.raise_for_status()
+    response.raw.decode_content = True
 
-
-def clean_text(text):
-    text = re.sub(r"\s+", " ", text or "")
-    return text.strip()
-
-
-def get_preview_image(page_url):
-    parsed_url = urlparse(page_url)
-
-    if parsed_url.scheme not in {"http", "https"}:
-        return None
+    text_stream = io.TextIOWrapper(
+        response.raw,
+        encoding="utf-8",
+        newline="",
+    )
+    reader = csv.DictReader(text_stream)
 
     try:
-        response = requests.get(
-            page_url,
-            headers=PAGE_HEADERS,
-            timeout=2.5,
-            allow_redirects=True,
-            stream=True,
-        )
+        for row in reader:
+            image_url = row.get("url", "").strip()
+            vector_text = row.get("vector", "").strip()
 
-        response.raise_for_status()
+            if not image_url.startswith(("http://", "https://")):
+                continue
 
-        content_type = response.headers.get(
-            "Content-Type",
-            "",
-        ).lower()
+            if not vector_text:
+                continue
 
-        if "text/html" not in content_type:
-            return None
+            vector = np.fromstring(
+                vector_text.strip("[]"),
+                sep=",",
+                dtype=np.float32,
+            )
 
-        html_bytes = bytearray()
+            if vector.shape != (VECTOR_DIMENSION,):
+                continue
 
-        for chunk in response.iter_content(chunk_size=8192):
-            html_bytes.extend(chunk)
+            vector_norm = np.linalg.norm(vector)
+            if vector_norm == 0:
+                continue
 
-            if len(html_bytes) >= 150_000:
+            vector /= vector_norm
+            vectors.append(vector.astype(np.float16))
+
+            metadata.append(
+                {
+                    "id": row.get("id", ""),
+                    "url": image_url,
+                    "caption": row.get("caption", ""),
+                    "caption_long": row.get("caption_long", ""),
+                    "source": (
+                        row.get("origin_source")
+                        or row.get("source")
+                        or "PD12M"
+                    ),
+                    "license": row.get("license", ""),
+                }
+            )
+
+            if len(vectors) >= item_limit:
                 break
+    finally:
+        response.close()
 
-        encoding = response.encoding or "utf-8"
-        html = html_bytes.decode(encoding, errors="replace")
+    if not vectors:
+        raise RuntimeError(f"PD12M shard {shard_name} returned no vectors.")
 
-        parser = OpenGraphParser()
-        parser.feed(html)
-
-        image_url = parser.get_image()
-
-        if not image_url:
-            return None
-
-        image_url = urljoin(response.url, image_url)
-
-        if urlparse(image_url).scheme not in {"http", "https"}:
-            return None
-
-        return image_url
-
-    except requests.RequestException:
-        return None
+    return vectors, metadata
 
 
-def extract_citations(message):
-    citations = []
-    seen_urls = set()
+def build_index(
+    limit=DEFAULT_INDEX_SIZE,
+    shard_count=DEFAULT_SHARD_COUNT,
+):
+    """Create a diverse subset by reading several PD12M shards in parallel."""
+    import numpy as np
 
-    for annotation in message.get("annotations", []):
-        if annotation.get("type") != "url_citation":
-            continue
+    if limit < 1:
+        raise ValueError("Index size must be greater than zero.")
 
-        citation = annotation.get("url_citation", {})
+    shard_count = max(1, min(shard_count, limit))
+    items_per_shard = math.ceil(limit / shard_count)
 
-        url = citation.get("url")
-        title = citation.get("title") or "Related page"
-        description = clean_text(citation.get("content", ""))
+    INDEX_FOLDER.mkdir(parents=True, exist_ok=True)
 
-        if not url or url in seen_urls:
-            continue
-
-        if urlparse(url).scheme not in {"http", "https"}:
-            continue
-
-        seen_urls.add(url)
-
-        citations.append({
-            "title": title,
-            "url": url,
-            "description": description[:300],
-        })
-
-    if citations:
-        return citations
-
-    content = message.get("content", "")
-
-    markdown_links = re.findall(
-        r"\[([^\]]+)\]\((https?://[^)]+)\)",
-        content,
+    print(
+        f"Preparing {limit} PD12M entries from "
+        f"{shard_count} shards..."
     )
 
-    for title, url in markdown_links:
-        if url in seen_urls:
-            continue
+    vectors = []
+    metadata = []
 
-        seen_urls.add(url)
+    with ThreadPoolExecutor(
+        max_workers=min(shard_count, 5)
+    ) as executor:
+        futures = {
+            executor.submit(
+                read_shard,
+                shard_index,
+                items_per_shard,
+            ): shard_index
+            for shard_index in range(shard_count)
+        }
 
-        citations.append({
-            "title": title,
-            "url": url,
-            "description": "",
-        })
+        for future in as_completed(futures):
+            shard_index = futures[future]
 
-    return citations
+            try:
+                shard_vectors, shard_metadata = future.result()
+            except Exception as error:
+                print(f"Shard {shard_index:07d} failed: {error}")
+                continue
+
+            vectors.extend(shard_vectors)
+            metadata.extend(shard_metadata)
+            print(
+                f"Shard {shard_index:07d} complete: "
+                f"{len(metadata)}/{limit}"
+            )
+
+    if not vectors:
+        raise RuntimeError("PD12M returned no valid vectors.")
+
+    vectors = vectors[:limit]
+    metadata = metadata[:limit]
+
+    np.save(VECTORS_PATH, np.stack(vectors))
+    METADATA_PATH.write_text(
+        json.dumps(metadata, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    print(f"Index ready with {len(metadata)} images.")
+    print(f"Vectors: {VECTORS_PATH}")
+    print(f"Metadata: {METADATA_PATH}")
 
 
-def search_related_content(image_bytes, count=4):
-    image_b64 = base64.b64encode(
-        image_bytes
-    ).decode("utf-8")
+def index_is_ready():
+    return VECTORS_PATH.exists() and METADATA_PATH.exists()
 
-    payload = {
-        "model": SEARCH_MODEL,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": (
-                            "Analyze the uploaded image and search "
-                            "the web for useful pages closely related "
-                            "to its main visual subject. "
-                            f"Find up to {count} relevant results. "
-                            "Prefer trustworthy and informative "
-                            "sources and cite every result."
-                        ),
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": (
-                                "data:image/jpeg;base64,"
-                                + image_b64
-                            )
-                        },
-                    },
-                ],
-            }
-        ],
-        "tools": [
-            {
-                "type": "openrouter:web_search",
-                "parameters": {
-                    "engine": "exa",
-                    "max_results": count,
-                    "max_total_results": count,
-                },
-            }
-        ],
+
+def load_index():
+    global _vectors
+    global _metadata
+
+    if _vectors is not None:
+        return
+
+    with _index_lock:
+        if _vectors is not None:
+            return
+
+        if not index_is_ready():
+            raise FileNotFoundError(
+                "The PD12M index is missing. Run once from the server folder: "
+                f"python search_client.py --build --limit {DEFAULT_INDEX_SIZE}"
+            )
+
+        import numpy as np
+
+        vector_array = np.load(VECTORS_PATH)
+        metadata = json.loads(METADATA_PATH.read_text(encoding="utf-8"))
+
+        if vector_array.ndim != 2 or vector_array.shape[1] != VECTOR_DIMENSION:
+            raise RuntimeError(
+                f"Invalid vector matrix shape: {vector_array.shape}"
+            )
+
+        if len(vector_array) != len(metadata):
+            raise RuntimeError(
+                "The PD12M vector and metadata counts do not match."
+            )
+
+        _vectors = vector_array.astype(np.float32)
+        _metadata = metadata
+
+        print(f"Loaded {len(_metadata)} PD12M vectors on CPU.")
+
+
+def load_model():
+    global _model
+    global _processor
+    global _torch
+
+    if _model is not None:
+        return
+
+    with _model_lock:
+        if _model is not None:
+            return
+
+        try:
+            import torch
+            from transformers import AutoModel, AutoProcessor
+        except ImportError as error:
+            raise RuntimeError(
+                "Similar-image search needs transformers. Install it with: "
+                "pip install transformers"
+            ) from error
+
+        print(f"Loading {MODEL_ID} on CPU. The first load can take a while.")
+
+        _processor = AutoProcessor.from_pretrained(MODEL_ID)
+        _model = AutoModel.from_pretrained(MODEL_ID)
+        _model.to(DEVICE)
+        _model.eval()
+        _torch = torch
+
+
+def encode_image(image_bytes):
+    from PIL import Image, ImageOps
+
+    load_model()
+
+    with Image.open(io.BytesIO(image_bytes)) as opened_image:
+        image = ImageOps.exif_transpose(opened_image).convert("RGB")
+
+    inputs = _processor(images=[image], return_tensors="pt")
+    inputs = {
+        name: value.to(DEVICE)
+        for name, value in inputs.items()
     }
 
-    response = requests.post(
-        OPENROUTER_URL,
-        headers=get_openrouter_headers(),
-        json=payload,
-        timeout=60,
-    )
+    with _inference_lock:
+        with _torch.inference_mode():
+            image_features = _model.get_image_features(**inputs)
 
-    response.raise_for_status()
+    if hasattr(image_features, "pooler_output"):
+        image_features = image_features.pooler_output
+    elif hasattr(image_features, "image_embeds"):
+        image_features = image_features.image_embeds
+    elif not _torch.is_tensor(image_features):
+        image_features = image_features[0]
 
-    message = response.json()["choices"][0]["message"]
-    citations = extract_citations(message)[:count]
+    if image_features.ndim == 1:
+        image_features = image_features.unsqueeze(0)
 
-    related_links = [
-        {
-            "title": citation["title"],
-            "url": citation["url"],
-            "description": citation["description"],
-        }
-        for citation in citations
-    ]
+    if image_features.shape[-1] != VECTOR_DIMENSION:
+        raise RuntimeError(
+            "SigLIP2 returned an unexpected embedding shape: "
+            f"{tuple(image_features.shape)}"
+        )
 
-    if not citations:
+    image_features = image_features.float().clone()
+    image_features = image_features / image_features.norm(
+        dim=-1,
+        keepdim=True,
+    ).clamp_min(1e-12)
+
+    return image_features[0].cpu().numpy()
+
+
+def search_related_content(image_bytes, limit=4):
+    """Return the closest PD12M images using exact cosine similarity."""
+    import numpy as np
+
+    if limit < 1:
         return {
             "images": [],
             "links": [],
+            "engine": "pd12m-siglip2",
+            "status": "disabled",
+            "error": None,
         }
 
-    with ThreadPoolExecutor(
-        max_workers=count
-    ) as executor:
-        preview_images = list(
-            executor.map(
-                get_preview_image,
-                [
-                    citation["url"]
-                    for citation in citations
-                ],
-            )
+    load_index()
+    query_vector = encode_image(image_bytes).astype(np.float32)
+
+    result_count = min(limit, len(_metadata))
+    scores = _vectors @ query_vector
+
+    if result_count == len(scores):
+        best_indices = np.argsort(scores)[::-1]
+    else:
+        best_indices = np.argpartition(
+            scores,
+            -result_count,
+        )[-result_count:]
+        best_indices = best_indices[
+            np.argsort(scores[best_indices])[::-1]
+        ]
+
+    images = []
+    links = []
+
+    for index in best_indices:
+        item = _metadata[int(index)]
+        caption = (
+            item.get("caption_long")
+            or item.get("caption")
+            or "Similar image"
+        )
+        image_url = item["url"]
+
+        images.append(
+            {
+                "title": caption[:180],
+                "image_url": image_url,
+                "url": image_url,
+                "source_url": image_url,
+                "source": item.get("source", "PD12M"),
+                "license": item.get("license", ""),
+                "similarity": round(float(scores[index]), 4),
+            }
+        )
+        links.append(
+            {
+                "title": caption[:180],
+                "url": image_url,
+                "source": item.get("source", "PD12M"),
+                "license": item.get("license", ""),
+            }
         )
 
-    related_images = []
-    seen_images = set()
-
-    for citation, preview_image in zip(
-        citations,
-        preview_images,
-    ):
-        if not preview_image:
-            continue
-
-        if preview_image in seen_images:
-            continue
-
-        seen_images.add(preview_image)
-
-        related_images.append({
-            "title": citation["title"],
-            "thumbnail_url": preview_image,
-            "image_url": preview_image,
-            "source_url": citation["url"],
-        })
-
     return {
-        "images": related_images,
-        "links": related_links,
+        "images": images,
+        "links": links,
+        "engine": "pd12m-siglip2",
+        "status": "ready",
+        "error": None,
     }
+
+
+def warmup_search():
+    load_index()
+    load_model()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--build", action="store_true")
+    parser.add_argument("--limit", type=int, default=DEFAULT_INDEX_SIZE)
+    parser.add_argument("--image", type=Path)
+    arguments = parser.parse_args()
+
+    if arguments.build:
+        build_index(arguments.limit)
+        return
+
+    if arguments.image:
+        if not arguments.image.exists():
+            raise FileNotFoundError(arguments.image)
+
+        result = search_related_content(
+            arguments.image.read_bytes(),
+            limit=4,
+        )
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return
+
+    print(
+        "Create the index:\n"
+        f"python search_client.py --build --limit {DEFAULT_INDEX_SIZE}\n\n"
+        "Test an image:\n"
+        "python search_client.py --image test_images/cat.jpg"
+    )
+
+
+if __name__ == "__main__":
+    main()
