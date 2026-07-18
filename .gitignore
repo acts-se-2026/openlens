@@ -7,3 +7,8 @@ planning/
 # Python venv
 .venv/
 __pycache__/
+
+# SQLite auth store
+*.db
+*.db-wal
+*.db-shm

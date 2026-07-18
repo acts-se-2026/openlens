@@ -135,6 +135,7 @@ fun CaptureScreen(
     selectedMode: ScanMode,
     onModeSelected: (ScanMode) -> Unit,
     onCaptured: (ByteArray) -> Unit,
+    onLogout: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
 
@@ -215,6 +216,17 @@ fun CaptureScreen(
                 .align(Alignment.TopCenter)
                 .windowInsetsPadding(WindowInsets.statusBars)
                 .padding(top = 16.dp),
+        )
+
+        Text(
+            text = "Log out",
+            color = OpenLensColors.TextLo,
+            fontSize = 14.sp,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(top = 16.dp, end = 20.dp)
+                .clickable(onClick = onLogout),
         )
 
         Column(
