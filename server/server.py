@@ -5,7 +5,14 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 
 from client import analyze_image
-from database import create_user, init_db, refund_tokens, try_decrement_tokens, user_exists
+from database import (
+    create_user,
+    get_token_balance,
+    init_db,
+    refund_tokens,
+    try_decrement_tokens,
+    user_exists,
+)
 from kratos import get_current_identity
 
 try:
@@ -30,6 +37,22 @@ def _startup():
     init_db()
 
 
+async def _ensure_provisioned(user_id: str) -> None:
+    """Create the wallet with a starting balance the first time we see this identity."""
+    if not await run_in_threadpool(user_exists, user_id):
+        await run_in_threadpool(create_user, user_id, STARTING_TOKENS)
+
+
+@app.get("/balance")
+async def balance(identity: dict = Depends(get_current_identity)):
+    """Current wallet balance for the caller. Seeds a wallet on first touch so a freshly
+    registered user reads their starting balance instead of a 404. The app calls this once to
+    seed its counter; after that it reads the balance riding along on each scan response."""
+    user_id = identity["id"]
+    await _ensure_provisioned(user_id)
+    return {"balance": await run_in_threadpool(get_token_balance, user_id)}
+
+
 @app.post("/image_to_model")
 async def image_to_model(
     file: UploadFile = File(...),
@@ -41,8 +64,7 @@ async def image_to_model(
     image_bytes = await file.read()  # read before charging so a bad upload never costs tokens
 
     # Auto-provision: first authenticated scan creates the wallet with a starting balance.
-    if not await run_in_threadpool(user_exists, user_id):
-        await run_in_threadpool(create_user, user_id, STARTING_TOKENS)
+    await _ensure_provisioned(user_id)
 
     cost = MODEL_COSTS.get(model, DEFAULT_COST)
     if cost > 0 and not await run_in_threadpool(try_decrement_tokens, user_id, cost):
@@ -63,9 +85,12 @@ async def image_to_model(
             await run_in_threadpool(refund_tokens, user_id, cost)
         raise
 
+    # The post-charge balance rides along in the response, so the app never needs a separate
+    # /balance call after a scan — it just reads this field.
     return {
         "Heading": model_result["heading"],
         "Body": model_result["body"],
         "BoundingBox": bounding_box_result["corners"],
         "DetectedObjects": bounding_box_result["detected_objects"],
+        "Balance": await run_in_threadpool(get_token_balance, user_id),
     }

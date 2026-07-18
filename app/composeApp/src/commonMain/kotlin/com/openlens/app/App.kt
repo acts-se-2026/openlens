@@ -71,6 +71,11 @@ fun App() {
 
             var screen: Screen by remember { mutableStateOf(Screen.Restoring) }
             var googleError: String? by remember { mutableStateOf(null) }
+            // Wallet balance shown on the capture screen. Seeded once on entering Capture (below) and
+            // then kept fresh from the Balance field on each scan response — so scans never trigger a
+            // separate /balance call. Null = not loaded yet (the chip shows a dash). Reset on logout so
+            // the next user never sees the previous user's number.
+            var tokenBalance: Int? by remember { mutableStateOf(null) }
             // Hoisted above the screen switch so the chosen tier survives Capture -> Result -> Capture
             // (and rotation / process death, via the name-based saver).
             var selectedMode by rememberSaveable(
@@ -81,6 +86,15 @@ fun App() {
             // the camera; otherwise (no token, or refresh rejected) land on Login.
             LaunchedEffect(Unit) {
                 screen = if (authRepository.validateSession()) Screen.Capture else Screen.Login
+            }
+
+            // Seed the balance the first time we land on Capture (per session): one /balance call
+            // while it's still unknown. Once a scan (or this seed) sets it, returning to Capture won't
+            // refetch — the value only moves via scan responses until logout clears it.
+            LaunchedEffect(screen) {
+                if (screen is Screen.Capture && tokenBalance == null) {
+                    tokenBalance = runCatching { repository.balance() }.getOrNull()
+                }
             }
 
             // Kick off Google sign-in: get the Google URL from Kratos and open it in a browser.
@@ -142,11 +156,13 @@ fun App() {
                         CaptureScreen(
                             controller = controller,
                             selectedMode = selectedMode,
+                            balance = tokenBalance,
                             onModeSelected = { selectedMode = it },
                             onCaptured = { bytes -> screen = Screen.Scanning(bytes, selectedMode) },
                             onLogout = {
                                 scope.launch {
                                     authRepository.logout()
+                                    tokenBalance = null // next user re-seeds; don't show a stale number
                                     screen = Screen.Login
                                 }
                             },
@@ -171,6 +187,9 @@ fun App() {
                                     detail = e.message ?: "Unknown error",
                                 )
                             }
+                            // A successful scan carries the post-charge balance; errors leave it null,
+                            // so the counter simply holds its last known value.
+                            result.balance?.let { tokenBalance = it }
                             screen = Screen.Result(current.bytes, result)
                         }
                     }

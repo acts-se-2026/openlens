@@ -137,6 +137,7 @@ private suspend fun autoRetake(
 fun CaptureScreen(
     controller: CameraController,
     selectedMode: ScanMode,
+    balance: Int?,
     onModeSelected: (ScanMode) -> Unit,
     onCaptured: (ByteArray) -> Unit,
     onLogout: () -> Unit,
@@ -280,6 +281,11 @@ fun CaptureScreen(
                         }
                     },
                 )
+                // Wallet readout, mirroring the gallery button on the shutter's right.
+                BalanceChip(
+                    balance = balance,
+                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = 28.dp),
+                )
             }
         }
 
@@ -364,6 +370,33 @@ private fun GalleryReveal(bytes: ByteArray, origin: Offset?, onFinished: () -> U
                     scaleX = settle
                     scaleY = settle
                 },
+        )
+    }
+}
+
+/**
+ * Persistent wallet readout in the bottom-right of the capture controls: a gold coin + the user's
+ * current token balance. Shows an em dash until the first balance load lands. Reuses the same dark
+ * scrim + hairline border as the gallery/shutter buttons so it reads as one control cluster.
+ */
+@Composable
+private fun BalanceChip(balance: Int?, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .background(Color.Black.copy(alpha = 0.35f))
+            .border(width = 1.dp, color = OpenLensColors.TextLo.copy(alpha = 0.4f), shape = RoundedCornerShape(50))
+            .padding(horizontal = 11.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CoinGlyph(size = 15.dp, muted = false)
+        Text(
+            text = balance?.toString() ?: "—",
+            color = OpenLensColors.TextHi,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            style = TextStyle(shadow = Shadow(color = Color.Black.copy(alpha = 0.5f), blurRadius = 6f)),
+            modifier = Modifier.padding(start = 5.dp),
         )
     }
 }
@@ -707,7 +740,7 @@ private fun CostTag(cost: Int, active: Boolean, modifier: Modifier = Modifier) {
         CoinGlyph(size = 13.dp, muted = free)
         Text(
             text = cost.toString(),
-            color = if (free) OpenLensColors.TextLo else OpenLensColors.CoinHi,
+            color = if (free) OpenLensColors.CoinMutedHi else OpenLensColors.CoinHi,
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
             style = TextStyle(shadow = Shadow(color = Color.Black.copy(alpha = 0.6f), blurRadius = 8f)),
@@ -718,35 +751,43 @@ private fun CostTag(cost: Int, active: Boolean, modifier: Modifier = Modifier) {
 
 /**
  * A tiny hand-minted coin, drawn rather than shipped as an asset so it stays crisp at any size and
- * picks up the app's palette: a gold disc with a diagonal sheen, a lighter rim, and a stamped
- * 4-point sparkle. [muted] renders it in neutral grey for zero-cost (free) tiers.
+ * picks up the app's palette: a disc with a diagonal sheen, a lighter rim, and a stamped 4-point
+ * sparkle. Paid tiers glint gold; [muted] renders a brighter silver coin for zero-cost (free) tiers.
+ *
+ * A dark ring is laid down first, one device pixel wider than the disc, so the coin keeps a crisp
+ * edge over bright or white scenes (the same job the text shadow does for the labels) — without it,
+ * the pale silver free coin washed out on light backgrounds.
  */
 @Composable
 private fun CoinGlyph(size: Dp, muted: Boolean, modifier: Modifier = Modifier) {
-    val face = if (muted) OpenLensColors.TextLo else OpenLensColors.Coin
-    val sheen = if (muted) OpenLensColors.TextHi.copy(alpha = 0.4f) else OpenLensColors.CoinHi
+    val face = if (muted) OpenLensColors.CoinMutedFace else OpenLensColors.Coin
+    val sheen = if (muted) OpenLensColors.CoinMutedHi else OpenLensColors.CoinHi
     val stamp = OpenLensColors.Bg
     Canvas(modifier.size(size)) {
         val d = size.toPx()
         val r = d / 2f
         val c = Offset(r, r)
+        // Dark contrast ring: a full dark disc at [r], overdrawn by the face inset by ~1dp, so a thin
+        // dark outline is left showing — enough of an edge to separate the coin from a white scene.
+        drawCircle(color = OpenLensColors.Bg, radius = r, center = c, alpha = 0.55f)
+        val faceR = r - 1.dp.toPx()
         // Disc with a top-left-to-bottom-right sheen so it reads as a minted, slightly 3D coin.
         drawCircle(
             brush = Brush.linearGradient(colors = listOf(sheen, face), start = Offset(0f, 0f), end = Offset(d, d)),
-            radius = r,
+            radius = faceR,
             center = c,
         )
         // Lighter rim ring just inside the edge.
         drawCircle(
             color = sheen,
-            radius = r - 0.6.dp.toPx(),
+            radius = faceR - 0.5.dp.toPx(),
             center = c,
-            style = Stroke(width = 1.dp.toPx()),
+            style = Stroke(width = 0.9.dp.toPx()),
             alpha = 0.85f,
         )
         // Stamped 4-point sparkle: alternate outer tips (up/right/down/left) with inner points.
-        val outer = r * 0.52f
-        val inner = r * 0.18f
+        val outer = faceR * 0.55f
+        val inner = faceR * 0.19f
         val star = Path().apply {
             for (k in 0 until 8) {
                 val ang = (-90f + k * 45f) * (PI.toFloat() / 180f)
@@ -757,7 +798,7 @@ private fun CoinGlyph(size: Dp, muted: Boolean, modifier: Modifier = Modifier) {
             }
             close()
         }
-        drawPath(path = star, color = stamp, alpha = if (muted) 0.5f else 0.72f)
+        drawPath(path = star, color = stamp, alpha = if (muted) 0.6f else 0.72f)
     }
 }
 

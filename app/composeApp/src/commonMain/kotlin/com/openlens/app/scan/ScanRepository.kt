@@ -8,9 +8,14 @@ import kotlinx.coroutines.delay
  */
 interface ScanRepository {
     suspend fun identify(image: ByteArray, model: ScanMode): ScanResult
+
+    /** Current wallet balance for the signed-in user; used to seed the on-screen coin counter. */
+    suspend fun balance(): Int
 }
 
 class FakeScanRepository : ScanRepository {
+    override suspend fun balance(): Int = 100
+
     override suspend fun identify(image: ByteArray, model: ScanMode): ScanResult {
         delay(1200) // simulate round-trip so the Scanning state is visible
         return ScanResult(

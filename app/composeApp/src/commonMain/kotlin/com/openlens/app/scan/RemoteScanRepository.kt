@@ -6,6 +6,7 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
+import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -34,7 +35,12 @@ class RemoteScanRepository(
     private data class ScanResponse(
         @SerialName("Heading") val heading: String,
         @SerialName("Body") val body: String,
+        // Post-charge wallet balance; lets the UI update its counter without a separate call.
+        @SerialName("Balance") val balance: Int? = null,
     )
+
+    @Serializable
+    private data class BalanceResponse(val balance: Int)
 
     override suspend fun identify(image: ByteArray, model: ScanMode): ScanResult {
         val response: HttpResponse = client.post("$baseUrl/image_to_model") {
@@ -60,8 +66,11 @@ class RemoteScanRepository(
         // .body() choke trying to parse the {"detail": ...} error payload as a ScanResponse.
         if (response.status == HttpStatusCode.PaymentRequired) throw OutOfTokensException()
         val parsed: ScanResponse = response.body()
-        return ScanResult(label = parsed.heading, detail = parsed.body)
+        return ScanResult(label = parsed.heading, detail = parsed.body, balance = parsed.balance)
     }
+
+    override suspend fun balance(): Int =
+        client.get("$baseUrl/balance").body<BalanceResponse>().balance
 }
 
 /**
