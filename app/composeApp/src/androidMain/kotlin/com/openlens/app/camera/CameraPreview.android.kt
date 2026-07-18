@@ -2,6 +2,9 @@ package com.openlens.app.camera
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -25,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executor
 
 actual class CameraController {
@@ -44,8 +48,12 @@ actual class CameraController {
                 val buffer = image.planes[0].buffer // JPEG output → single plane
                 val bytes = ByteArray(buffer.remaining())
                 buffer.get(bytes)
+                val rotationDegrees = image.imageInfo.rotationDegrees
                 image.close()
-                onResult(bytes)
+                // The raw camera JPEG is multiple MB; the backend downscales to 1600px anyway, so
+                // uploading full-res just wastes mobile uplink (the bulk of scan latency). Shrink +
+                // re-encode here, falling back to the original bytes if anything goes wrong.
+                onResult(downscaleForUpload(bytes, rotationDegrees) ?: bytes)
             }
 
             override fun onError(exception: ImageCaptureException) {
@@ -53,6 +61,48 @@ actual class CameraController {
             }
         })
     }
+}
+
+private const val MAX_UPLOAD_DIMENSION = 1600
+private const val UPLOAD_JPEG_QUALITY = 85
+
+/**
+ * Shrink a full-res camera JPEG to at most [MAX_UPLOAD_DIMENSION] on its long edge and re-encode at
+ * [UPLOAD_JPEG_QUALITY], baking [rotationDegrees] into the pixels (the re-encoded JPEG carries no EXIF
+ * orientation, so it's already upright for the server). The backend downscales to 1600px regardless,
+ * so this only removes wasted upload bytes — multi-MB → a few hundred KB, the bulk of scan latency on
+ * mobile. Returns null on any failure so the caller falls back to the original bytes.
+ */
+private fun downscaleForUpload(jpeg: ByteArray, rotationDegrees: Int): ByteArray? = try {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, bounds)
+    val longEdge = maxOf(bounds.outWidth, bounds.outHeight)
+
+    // Coarse power-of-two downsample at decode time (cheap + memory-safe), then exact scale below.
+    val decodeOpts = BitmapFactory.Options().apply {
+        var sample = 1
+        while (longEdge > 0 && longEdge / (sample * 2) >= MAX_UPLOAD_DIMENSION) sample *= 2
+        inSampleSize = sample
+    }
+    val decoded = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, decodeOpts) ?: return null
+
+    val scale = MAX_UPLOAD_DIMENSION.toFloat() / maxOf(decoded.width, decoded.height)
+    val matrix = Matrix().apply {
+        if (scale < 1f) postScale(scale, scale)
+        if (rotationDegrees != 0) postRotate(rotationDegrees.toFloat())
+    }
+    val scaled =
+        if (matrix.isIdentity) decoded
+        else Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
+    if (scaled != decoded) decoded.recycle()
+
+    ByteArrayOutputStream().use { stream ->
+        scaled.compress(Bitmap.CompressFormat.JPEG, UPLOAD_JPEG_QUALITY, stream)
+        scaled.recycle()
+        stream.toByteArray()
+    }
+} catch (_: Throwable) {
+    null
 }
 
 @Composable
