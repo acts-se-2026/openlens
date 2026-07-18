@@ -19,8 +19,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /**
- * Real backend: POST the captured JPEG to the FastAPI server's /image_to_model endpoint and map
- * its {"Heading", "Body"} response onto [ScanResult].
+ * Real backend: POST the captured JPEG to the FastAPI server. Detection ([detect] → /detect) returns
+ * the per-object boxes to draw; analysis ([identify] → /image_to_model) returns the {"Heading",
+ * "Body"} answer, optionally cropped to a selected box via the `region` field.
  *
  * The target server is chosen by [Env.ACTIVE] (dev = localhost, prod = deployed IP). On a physical
  * device pointed at [Env.Dev], run `adb reverse tcp:8000 tcp:8000` so localhost reaches the dev
@@ -42,7 +43,65 @@ class RemoteScanRepository(
     @Serializable
     private data class BalanceResponse(val balance: Int)
 
-    override suspend fun identify(image: ByteArray, model: ScanMode): ScanResult {
+    // /detect payload: a list of objects, each with a label, confidence, and normalized corners.
+    // Only top_left + bottom_right are needed for an axis-aligned box; ignoreUnknownKeys drops the
+    // other two corners the server also sends.
+    @Serializable
+    private data class DetectResponse(val objects: List<DetectedObjectDto> = emptyList())
+
+    @Serializable
+    private data class DetectedObjectDto(
+        val label: String = "",
+        val confidence: Float = 0f,
+        val corners: CornersDto? = null,
+    )
+
+    @Serializable
+    private data class CornersDto(
+        @SerialName("top_left") val topLeft: PointDto,
+        @SerialName("bottom_right") val bottomRight: PointDto,
+    )
+
+    @Serializable
+    private data class PointDto(val x: Float, val y: Float)
+
+    override suspend fun detect(image: ByteArray): List<DetectedBox> {
+        val response: HttpResponse = client.post("$baseUrl/detect") {
+            setBody(
+                MultiPartFormDataContent(
+                    formData {
+                        append(
+                            key = "file",
+                            value = image,
+                            headers = Headers.build {
+                                append(HttpHeaders.ContentType, "image/jpeg")
+                                append(HttpHeaders.ContentDisposition, "filename=\"capture.jpg\"")
+                            },
+                        )
+                    },
+                ),
+            )
+        }
+        val parsed: DetectResponse = response.body()
+        // Index-based ids are stable within a single detection result, which is all the UI needs to
+        // track selection and cache per-box answers for one captured frame.
+        return parsed.objects.mapIndexedNotNull { index, obj ->
+            val corners = obj.corners ?: return@mapIndexedNotNull null
+            DetectedBox(
+                id = "box-$index",
+                label = obj.label,
+                confidence = obj.confidence,
+                rect = NormRect(
+                    left = corners.topLeft.x,
+                    top = corners.topLeft.y,
+                    right = corners.bottomRight.x,
+                    bottom = corners.bottomRight.y,
+                ),
+            )
+        }
+    }
+
+    override suspend fun identify(image: ByteArray, model: ScanMode, region: NormRect?): ScanResult {
         val response: HttpResponse = client.post("$baseUrl/image_to_model") {
             setBody(
                 MultiPartFormDataContent(
@@ -58,6 +117,15 @@ class RemoteScanRepository(
                         )
                         // Selected tier ("free"/"fast"/"deep"); backend maps it to a model id.
                         append(key = "model", value = model.wire)
+                        // Focus the analysis on one object: a normalized [x1,y1,x2,y2] JSON array the
+                        // server crops to (plus padding). Omitted → the whole image is analyzed.
+                        if (region != null) {
+                            append(
+                                key = "region",
+                                value = "[${region.left},${region.top}," +
+                                    "${region.right},${region.bottom}]",
+                            )
+                        }
                     },
                 ),
             )
