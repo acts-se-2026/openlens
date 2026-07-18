@@ -38,9 +38,9 @@ import com.openlens.app.ui.CaptureScreen
 import com.openlens.app.ui.LoginScreen
 import com.openlens.app.ui.RegisterScreen
 import com.openlens.app.ui.ResultScreen
-import com.openlens.app.ui.ScanningScreen
 import com.openlens.app.ui.theme.OpenLensColors
 import com.openlens.app.ui.theme.OpenLensTheme
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 private sealed interface Screen {
@@ -49,8 +49,7 @@ private sealed interface Screen {
     data object Login : Screen
     data object Register : Screen
     data object Capture : Screen
-    data class Scanning(val bytes: ByteArray, val model: ScanMode) : Screen
-    data class Result(val bytes: ByteArray, val result: ScanResult) : Screen
+    data class Result(val bytes: ByteArray, val model: ScanMode) : Screen
 }
 
 @Composable
@@ -127,7 +126,7 @@ fun App() {
                 // One long-lived camera preview under Capture + Scanning only — never under auth,
                 // the splash, or Result. Kept across the capture→scan hop so the camera isn't
                 // re-warmed between a shot and its scan; Scanning/Result paint an opaque frame over it.
-                if (screen is Screen.Capture || screen is Screen.Scanning) {
+                if (screen is Screen.Capture) {
                     CameraPreview(controller, Modifier.fillMaxSize())
                 }
 
@@ -158,7 +157,7 @@ fun App() {
                             selectedMode = selectedMode,
                             balance = tokenBalance,
                             onModeSelected = { selectedMode = it },
-                            onCaptured = { bytes -> screen = Screen.Scanning(bytes, selectedMode) },
+                            onCaptured = { bytes -> screen = Screen.Result(bytes, selectedMode) },
                             onLogout = {
                                 scope.launch {
                                     authRepository.logout()
@@ -168,36 +167,33 @@ fun App() {
                             },
                         )
 
-                    is Screen.Scanning -> {
-                        ScanningScreen(bytes = current.bytes)
-                        LaunchedEffect(current) {
-                            val result = try {
-                                repository.identify(current.bytes, current.model)
-                            } catch (e: OutOfTokensException) {
-                                // Only Fast/Deep can hit this — Free costs nothing. Point them at Free.
-                                ScanResult(
-                                    label = "Out of tokens",
-                                    detail = "You've used up your tokens for Fast and Deep scans. " +
-                                        "Switch to Free to keep scanning.",
-                                )
-                            } catch (e: Exception) {
-                                // Show the failure on the result sheet instead of crashing the app.
-                                ScanResult(
-                                    label = "Couldn't reach the server",
-                                    detail = e.message ?: "Unknown error",
-                                )
-                            }
-                            // A successful scan carries the post-charge balance; errors leave it null,
-                            // so the counter simply holds its last known value.
-                            result.balance?.let { tokenBalance = it }
-                            screen = Screen.Result(current.bytes, result)
-                        }
-                    }
-
                     is Screen.Result ->
                         ResultScreen(
                             bytes = current.bytes,
-                            result = current.result,
+                            identify = { region ->
+                                val result = try {
+                                    repository.identify(current.bytes, current.model, region)
+                                } catch (e: CancellationException) {
+                                    throw e // let a superseded/left-screen scan cancel cleanly
+                                } catch (e: OutOfTokensException) {
+                                    // Only Fast/Deep can hit this — Free costs nothing. Point them at Free.
+                                    ScanResult(
+                                        label = "Out of tokens",
+                                        detail = "You've used up your tokens for Fast and Deep scans. " +
+                                            "Switch to Free to keep scanning.",
+                                    )
+                                } catch (e: Exception) {
+                                    // Show the failure on the result sheet instead of crashing the app.
+                                    ScanResult(
+                                        label = "Couldn't reach the server",
+                                        detail = e.message ?: "Unknown error",
+                                    )
+                                }
+                                // A successful scan carries the post-charge balance; errors leave it
+                                // null, so the counter simply holds its last known value.
+                                result.balance?.let { tokenBalance = it }
+                                result
+                            },
                             onScanAgain = { screen = Screen.Capture },
                         )
                 }
