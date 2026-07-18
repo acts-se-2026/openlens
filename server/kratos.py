@@ -4,6 +4,8 @@ FastAPI stores no credentials and signs nothing. On every protected request it f
 caller's Kratos session token to Kratos's `/sessions/whoami` and trusts the answer. That's the
 whole "relying party" idea — identity lives in Kratos, we just check with it.
 """
+import secrets
+
 import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -13,6 +15,10 @@ import config
 # The app sends `Authorization: Bearer <kratos_session_token>`. auto_error=True → a missing or
 # malformed header is a 403 before our code runs; a present-but-invalid token becomes a 401 below.
 _bearer = HTTPBearer(auto_error=True)
+
+# Fixed identity returned for the shared dev test token (see config.DEV_TEST_TOKEN). Its wallet is
+# auto-provisioned like any real user's, so all dev testing is metered against this one account.
+_DEV_IDENTITY = {"id": "dev-test-user", "traits": {"email": "dev@openlens.test", "name": "Dev Tester"}}
 
 
 async def whoami(session_token: str) -> dict | None:
@@ -41,6 +47,12 @@ async def get_current_identity(
 
     Returns the Kratos `identity` object (id, traits like email/name, …) for the caller.
     """
+    # DEV-ONLY shortcut: a configured static token authenticates as a fixed identity without Kratos.
+    # Inert unless config.DEV_TEST_TOKEN is set; compared in constant time so it can't be probed by
+    # timing. Real Kratos sessions are unaffected — they never equal the dev token.
+    if config.DEV_TEST_TOKEN and secrets.compare_digest(creds.credentials, config.DEV_TEST_TOKEN):
+        return _DEV_IDENTITY
+
     session = await whoami(creds.credentials)
     if session is None:
         raise HTTPException(

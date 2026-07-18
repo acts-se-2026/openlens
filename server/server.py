@@ -4,6 +4,7 @@ import os
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 
+import config
 from client import analyze_image
 from database import (
     create_user,
@@ -35,6 +36,9 @@ DEFAULT_COST = 1
 @app.on_event("startup")
 def _startup():
     init_db()
+    if config.DEV_TEST_TOKEN:
+        # Loud on purpose: this means the Kratos auth bypass is live. Fine locally, never in prod.
+        print("WARNING: DEV_TEST_TOKEN is set — Kratos auth bypass ENABLED. Do not use in production.")
 
 
 async def _ensure_provisioned(user_id: str) -> None:
