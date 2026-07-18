@@ -24,10 +24,33 @@ interface ScanRepository {
 
     /** Current wallet balance for the signed-in user; used to seed the on-screen coin counter. */
     suspend fun balance(): Int
+
+    /**
+     * "Similar images" for the current answer: a client-side image search keyed on [query] (the
+     * scan's heading), independent of [identify]/[detect] and fetched lazily by the UI. Returns an
+     * empty list when nothing is found or the search fails — it never throws.
+     */
+    suspend fun searchImages(query: String): List<RelatedImage>
+
+    /**
+     * Fetch the raw bytes of a related image from its (third-party) URL. Uses a plain client with no
+     * OpenLens auth header — the session bearer must never ride along to an external host. Returns
+     * null on any failure (bad URL, non-image, network error) so a broken thumbnail can fall back to
+     * a placeholder instead of spinning forever.
+     */
+    suspend fun loadImageBytes(url: String): ByteArray?
 }
 
 class FakeScanRepository : ScanRepository {
     override suspend fun balance(): Int = 100
+
+    override suspend fun searchImages(query: String): List<RelatedImage> {
+        delay(500) // simulate the search round-trip so the loading spinners are visible
+        return emptyList()
+    }
+
+    // No offline fixtures: related images live on third-party hosts, so the fake can't serve bytes.
+    override suspend fun loadImageBytes(url: String): ByteArray? = null
 
     override suspend fun detect(image: ByteArray): List<DetectedBox> {
         delay(600) // simulate the detection round-trip so the boxes appear a beat after capture

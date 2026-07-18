@@ -7,12 +7,16 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.encodeURLParameter
+import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -64,6 +68,18 @@ class RemoteScanRepository(
 
     @Serializable
     private data class PointDto(val x: Float, val y: Float)
+
+    // DuckDuckGo image-search JSON (the i.js endpoint). Only the fields we render are modelled.
+    @Serializable
+    private data class DdgImageResponse(val results: List<DdgImageResult> = emptyList())
+
+    @Serializable
+    private data class DdgImageResult(
+        val title: String = "",
+        val image: String = "",
+        val thumbnail: String = "",
+        val url: String = "",
+    )
 
     override suspend fun detect(image: ByteArray): List<DetectedBox> {
         val response: HttpResponse = client.post("$baseUrl/detect") {
@@ -139,7 +155,96 @@ class RemoteScanRepository(
 
     override suspend fun balance(): Int =
         client.get("$baseUrl/balance").body<BalanceResponse>().balance
+
+    // Client-side image search, keyed on the answer's heading (which the scan already produced), so we
+    // skip the backend's slow /related path (a vision call just to invent a query + per-page scraping).
+    // Uses DuckDuckGo's public image endpoint over the no-auth [imageFetchClient]; returns empty on any
+    // failure so the UI just shows "none found" instead of hanging. The endpoint is undocumented and
+    // may need occasional maintenance if DuckDuckGo changes it.
+    override suspend fun searchImages(query: String): List<RelatedImage> {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return emptyList()
+
+        return runCatching {
+            val encoded = trimmed.encodeURLParameter()
+            val vqd = fetchVqd(encoded) ?: return emptyList()
+
+            val body = imageFetchClient
+                .get("https://duckduckgo.com/i.js?l=us-en&o=json&q=$encoded&vqd=$vqd&f=,,,&p=1") {
+                    header(HttpHeaders.UserAgent, DDG_USER_AGENT)
+                    header(HttpHeaders.Referrer, "https://duckduckgo.com/")
+                }
+                .bodyAsText()
+
+            // A rate-limit / error page is HTML, not JSON — bail rather than throw on the parse.
+            if (!body.trimStart().startsWith("{")) return emptyList()
+
+            ddgJson.decodeFromString<DdgImageResponse>(body).results
+                .asSequence()
+                .mapNotNull { result ->
+                    // Prefer the (already-sized, fast-loading) thumbnail; fall back to the full image.
+                    val imageUrl = result.thumbnail.ifBlank { result.image }
+                    if (imageUrl.isBlank()) null
+                    else RelatedImage(
+                        title = result.title,
+                        imageUrl = imageUrl,
+                        sourceUrl = result.url.ifBlank { imageUrl },
+                    )
+                }
+                .take(MAX_RELATED_IMAGES)
+                .toList()
+        }.getOrDefault(emptyList())
+    }
+
+    /** First half of the DuckDuckGo image search: scrape the one-time `vqd` token the i.js call needs. */
+    private suspend fun fetchVqd(encodedQuery: String): String? {
+        val html = imageFetchClient
+            .get("https://duckduckgo.com/?q=$encodedQuery&iax=images&ia=images") {
+                header(HttpHeaders.UserAgent, DDG_USER_AGENT)
+            }
+            .bodyAsText()
+
+        return VQD_QUOTED.find(html)?.groupValues?.get(1)
+            ?: VQD_BARE.find(html)?.groupValues?.get(1)
+    }
+
+    // Fetched over [imageFetchClient] (no auth header) — never over [client], which would leak the
+    // OpenLens bearer to the third-party host serving the image.
+    override suspend fun loadImageBytes(url: String): ByteArray? = runCatching {
+        val response = imageFetchClient.get(url)
+        if (response.status.isSuccess()) response.body<ByteArray>() else null
+    }.getOrNull()
 }
+
+/**
+ * A separate, auth-free client for the similar-images feature: both the DuckDuckGo image search and
+ * pulling the resulting image bytes off arbitrary third-party hosts. It deliberately does NOT install
+ * the bearer-attaching [defaultRequest] the scan client uses — sending our Kratos session token to a
+ * random website would leak it. Process-lived (owns an engine) for the same reason as
+ * [sharedHttpClient]. No content negotiation: we read raw bytes / text and parse search JSON by hand.
+ */
+private val imageFetchClient: HttpClient by lazy {
+    HttpClient {
+        install(HttpTimeout) {
+            requestTimeoutMillis = 20_000
+            socketTimeoutMillis = 20_000
+        }
+    }
+}
+
+private const val MAX_RELATED_IMAGES = 8
+
+// A desktop browser UA — DuckDuckGo serves the token page + i.js JSON we parse to a browser client.
+private const val DDG_USER_AGENT =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/126.0.0.0 Safari/537.36"
+
+// The vqd token appears either quoted (vqd="4-123…") or bare in a URL (vqd=4-123…&) depending on the
+// page variant DuckDuckGo returns; try both.
+private val VQD_QUOTED = Regex("""vqd=["']([^"']+)["']""")
+private val VQD_BARE = Regex("""vqd=([-\d.]+)&""")
+
+private val ddgJson = Json { ignoreUnknownKeys = true }
 
 /**
  * One client for the whole app process. An [HttpClient] owns a connection pool and engine threads,
