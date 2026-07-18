@@ -195,6 +195,8 @@ fun App() {
                                 result
                             },
                             detect = repository::detect,
+                            searchImages = repository::searchImages,
+                            loadImage = repository::loadImageBytes,
                             onScanAgain = { screen = Screen.Capture },
                         )
                 }

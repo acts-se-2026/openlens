@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import com.openlens.app.scan.DetectedBox
 import com.openlens.app.scan.Env
 import com.openlens.app.scan.NormRect
+import com.openlens.app.scan.RelatedImage
 import com.openlens.app.scan.ScanResult
 import com.openlens.app.ui.theme.OpenLensColors
 import com.openlens.app.util.decodeImageBitmap
@@ -52,6 +53,8 @@ fun ResultScreen(
     bytes: ByteArray,
     identify: suspend (NormRect) -> ScanResult,
     detect: suspend (ByteArray) -> List<DetectedBox>,
+    searchImages: suspend (String) -> List<RelatedImage>,
+    loadImage: suspend (String) -> ByteArray?,
     onScanAgain: () -> Unit,
 ) {
     val image = remember(bytes) { decodeImageBitmap(bytes) }
@@ -64,6 +67,11 @@ fun ResultScreen(
     var showDetail by remember { mutableStateOf(false) }
     // Detected objects (image 0..1 coords), drawn as tappable suggestions. Empty on servers without YOLO.
     var detections by remember { mutableStateOf<List<NormRect>>(emptyList()) }
+    // Similar-images strip: null until the detail sheet is first opened. Lazy on purpose — we only
+    // search when the user actually asks to see it. [searchedQuery] tracks the heading we last searched
+    // so it refreshes if a region re-identify changes the answer, but not on every reopen.
+    var similarState by remember { mutableStateOf<SimilarImagesState?>(null) }
+    var searchedQuery by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     fun scan() {
@@ -90,6 +98,22 @@ fun ResultScreen(
         val found = runCatching { detect(bytes) }.getOrDefault(emptyList()).map { it.rect }
         // Fallback only in the dev build, so a prod server that legitimately finds nothing shows nothing.
         detections = found.ifEmpty { if (Env.ACTIVE == Env.Dev) DEV_FALLBACK_DETECTIONS else emptyList() }
+    }
+
+    // Search for similar images when the detail sheet opens, using the current answer's heading as the
+    // query. Re-runs if the heading changes (region re-identify) but not on a plain reopen. The search
+    // never throws (empty = "none found"); a superseded query cancels cleanly when the key changes.
+    val currentLabel = result?.label
+    LaunchedEffect(showDetail, currentLabel) {
+        if (showDetail && !currentLabel.isNullOrBlank() && currentLabel != searchedQuery) {
+            similarState = SimilarImagesState.Loading
+            val images = runCatching { searchImages(currentLabel) }.getOrDefault(emptyList())
+            similarState = SimilarImagesState.Ready(images)
+            // Mark done only after the search actually completes — so if the sheet is closed mid-search
+            // (cancelling this effect before Ready is set), reopening re-runs it instead of getting
+            // stuck on the Loading spinner forever.
+            searchedQuery = currentLabel
+        }
     }
 
     Box(
@@ -173,6 +197,8 @@ fun ResultScreen(
             shown?.let {
                 ResultDetailCard(
                     result = it,
+                    similarState = similarState ?: SimilarImagesState.Loading,
+                    loadImage = loadImage,
                     onClose = { showDetail = false },
                 )
             }

@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -140,12 +141,16 @@ fun RetakeButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 /**
- * Full description card (content-sized, capped so long text scrolls) — reading only. Heading + ✕ and
- * the scrollable description. The scrim + open/close animation are owned by the caller.
+ * Full reading card: heading + ✕, the description, and the similar-images masonry. The whole card is a
+ * single vertical scroll — heading, text, and images move together — capped at a fraction of the
+ * screen so tall content scrolls inside the sheet instead of sliding off the top. The scrim +
+ * open/close animation are owned by the caller.
  */
 @Composable
 fun ResultDetailCard(
     result: ScanResult,
+    similarState: SimilarImagesState,
+    loadImage: suspend (String) -> ByteArray?,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -161,38 +166,45 @@ fun ResultDetailCard(
                 onClick = {},
             ),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .padding(start = 24.dp, top = 16.dp, end = 14.dp, bottom = 22.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = result.label,
-                    color = OpenLensColors.TextHi,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
-                )
-                Box(
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .clickable(onClick = onClose)
-                        .padding(10.dp),
-                ) {
-                    Text("✕", color = OpenLensColors.TextLo, fontSize = 18.sp)
-                }
-            }
-            Text(
-                text = result.detail,
-                color = OpenLensColors.TextLo,
-                fontSize = 15.sp,
+        BoxWithConstraints {
+            val maxCardHeight = maxHeight * 0.85f
+            Column(
                 modifier = Modifier
-                    .heightIn(max = 360.dp)
-                    .padding(top = 12.dp, end = 10.dp)
-                    .verticalScroll(rememberScrollState()),
-            )
+                    .fillMaxWidth()
+                    .heightIn(max = maxCardHeight)
+                    .verticalScroll(rememberScrollState())
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .padding(start = 24.dp, top = 16.dp, end = 14.dp, bottom = 22.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = result.label,
+                        color = OpenLensColors.TextHi,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .clickable(onClick = onClose)
+                            .padding(10.dp),
+                    ) {
+                        Text("✕", color = OpenLensColors.TextLo, fontSize = 18.sp)
+                    }
+                }
+                Text(
+                    text = result.detail,
+                    color = OpenLensColors.TextLo,
+                    fontSize = 15.sp,
+                    modifier = Modifier.padding(top = 12.dp, end = 10.dp),
+                )
+                SimilarImagesSection(
+                    state = similarState,
+                    loadImage = loadImage,
+                    modifier = Modifier.padding(top = 20.dp, end = 10.dp),
+                )
+            }
         }
     }
 }
