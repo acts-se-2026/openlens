@@ -8,7 +8,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from bounding_box import detect_main_area
 from client import analyze_image
-from db import init_db, try_decrement_tokens, refund_tokens, user_exists
+from database import init_db, try_decrement_tokens, refund_tokens, user_exists
 
 
 app = FastAPI()
