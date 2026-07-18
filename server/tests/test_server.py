@@ -9,8 +9,12 @@ import httpx
 from fastapi.testclient import TestClient
 
 from server import app
+import config
 
 client = TestClient(app)
+
+# Every route is gated on a bearer token; the dev static token authenticates without Kratos.
+_AUTH = {"Authorization": f"Bearer {config.DEV_TEST_TOKEN}"}
 
 def test_cat_image():
     start = time.perf_counter()
@@ -25,7 +29,8 @@ def test_cat_image():
                     "image/jpeg"
                 )
             },
-            data={"model": "free"}
+            data={"model": "free"},
+            headers=_AUTH,
         )
 
     end = time.perf_counter()
@@ -36,7 +41,6 @@ def test_cat_image():
     text = result["Heading"] + " " + result["Body"]
 
     assert "kitten" in text.lower()
-    assert "BoundingBox" in result
 
 
 async def send_image(path):
@@ -61,7 +65,8 @@ async def send_image(path):
                         "image/jpeg"
                     )
                 },
-                data={"model": "free"}
+                data={"model": "free"},
+                headers=_AUTH,
             )
             
             end = time.perf_counter()

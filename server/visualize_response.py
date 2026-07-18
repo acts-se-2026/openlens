@@ -1,3 +1,8 @@
+"""Manual visualizer for the box flow: draws every per-object box from /detect (label + confidence)
+over the image, titled with the /image_to_model heading and captioned with its body.
+
+Run the server first, then from server/: `python visualize_response.py`.
+"""
 from pathlib import Path
 import textwrap
 
@@ -6,116 +11,70 @@ import requests
 from matplotlib.patches import Rectangle
 from PIL import Image
 
+import config
+
 
 IMAGE_PATH = Path("test_images/cat.jpg")
-SERVER_URL = "http://127.0.0.1:8000/image_to_model"
+BASE_URL = "http://127.0.0.1:8000"
+# Every route is gated on a bearer token; the dev static token authenticates without Kratos.
+HEADERS = {"Authorization": f"Bearer {config.DEV_TEST_TOKEN}"}
 
 
-with IMAGE_PATH.open("rb") as image_file:
-    response = requests.post(
-        SERVER_URL,
-        files={
-            "file": (
-                IMAGE_PATH.name,
-                image_file,
-                "image/jpeg",
-            )
-        },
-        data={"model": "free"},
-        timeout=120,
-    )
+def post_image(path, data=None):
+    with IMAGE_PATH.open("rb") as image_file:
+        response = requests.post(
+            f"{BASE_URL}{path}",
+            files={"file": (IMAGE_PATH.name, image_file, "image/jpeg")},
+            data=data or {},
+            headers=HEADERS,
+            timeout=120,
+        )
+    response.raise_for_status()
+    return response.json()
 
-response.raise_for_status()
-result = response.json()
+
+objects = post_image("/detect").get("objects", [])
+result = post_image("/image_to_model", {"model": "free"})
 
 image = Image.open(IMAGE_PATH).convert("RGB")
 image_width, image_height = image.size
 
-corners = result["BoundingBox"]
-
-minimum_x = corners["top_left"]["x"] * image_width
-minimum_y = corners["top_left"]["y"] * image_height
-maximum_x = corners["bottom_right"]["x"] * image_width
-maximum_y = corners["bottom_right"]["y"] * image_height
-
-box_width = maximum_x - minimum_x
-box_height = maximum_y - minimum_y
-
 figure, axis = plt.subplots(figsize=(12, 9))
-
 axis.imshow(image)
 
-bounding_box = Rectangle(
-    (minimum_x, minimum_y),
-    box_width,
-    box_height,
-    linewidth=6,
-    edgecolor="red",
-    facecolor="none",
-)
+# One rectangle + label per detected object, in the same normalized frame the app draws them in.
+for obj in objects:
+    corners = obj["corners"]
+    left = corners["top_left"]["x"] * image_width
+    top = corners["top_left"]["y"] * image_height
+    right = corners["bottom_right"]["x"] * image_width
+    bottom = corners["bottom_right"]["y"] * image_height
 
-axis.add_patch(bounding_box)
-
-corner_x = [
-    minimum_x,
-    maximum_x,
-    maximum_x,
-    minimum_x,
-]
-
-corner_y = [
-    minimum_y,
-    minimum_y,
-    maximum_y,
-    maximum_y,
-]
-
-axis.scatter(
-    corner_x,
-    corner_y,
-    color="yellow",
-    edgecolors="black",
-    s=100,
-    zorder=3,
-)
-
-axis.set_title(
-    result["Heading"],
-    fontsize=20,
-    fontweight="bold",
-)
-
-objects = ", ".join(result.get("DetectedObjects", []))
-
-if objects:
+    axis.add_patch(
+        Rectangle(
+            (left, top),
+            right - left,
+            bottom - top,
+            linewidth=3,
+            edgecolor="red",
+            facecolor="none",
+        )
+    )
     axis.text(
-        minimum_x,
-        max(0, minimum_y - 15),
-        objects,
+        left,
+        max(0, top - 8),
+        f"{obj['label']} {obj['confidence']:.2f}",
         color="white",
-        fontsize=12,
+        fontsize=11,
         fontweight="bold",
-        bbox={
-            "facecolor": "red",
-            "alpha": 0.8,
-            "edgecolor": "none",
-        },
+        bbox={"facecolor": "red", "alpha": 0.8, "edgecolor": "none"},
     )
 
+axis.set_title(result["Heading"], fontsize=20, fontweight="bold")
 axis.axis("off")
 
-description = textwrap.fill(
-    result["Body"],
-    width=100,
-)
-
-figure.text(
-    0.5,
-    0.02,
-    description,
-    ha="center",
-    fontsize=11,
-)
+description = textwrap.fill(result["Body"], width=100)
+figure.text(0.5, 0.02, description, ha="center", fontsize=11)
 
 plt.subplots_adjust(bottom=0.15)
 plt.show()
