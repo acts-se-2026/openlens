@@ -106,11 +106,13 @@ fun ResultScreen(
     val currentLabel = result?.label
     LaunchedEffect(showDetail, currentLabel) {
         if (showDetail && !currentLabel.isNullOrBlank() && currentLabel != searchedQuery) {
-            searchedQuery = currentLabel
             similarState = SimilarImagesState.Loading
-            similarState = SimilarImagesState.Ready(
-                runCatching { searchImages(currentLabel) }.getOrDefault(emptyList()),
-            )
+            val images = runCatching { searchImages(currentLabel) }.getOrDefault(emptyList())
+            similarState = SimilarImagesState.Ready(images)
+            // Mark done only after the search actually completes — so if the sheet is closed mid-search
+            // (cancelling this effect before Ready is set), reopening re-runs it instead of getting
+            // stuck on the Loading spinner forever.
+            searchedQuery = currentLabel
         }
     }
 
