@@ -32,6 +32,9 @@ STARTING_TOKENS = int(os.getenv("STARTING_TOKENS", "100"))
 MODEL_COSTS = {"free": 0, "fast": 1, "deep": 3}
 DEFAULT_COST = 1
 
+# Default language if the client doesn't specify one.
+DEFAULT_LANGUAGE = "english"
+
 
 @app.on_event("startup")
 def _startup():
@@ -49,9 +52,6 @@ async def _ensure_provisioned(user_id: str) -> None:
 
 @app.get("/balance")
 async def balance(identity: dict = Depends(get_current_identity)):
-    """Current wallet balance for the caller. Seeds a wallet on first touch so a freshly
-    registered user reads their starting balance instead of a 404. The app calls this once to
-    seed its counter; after that it reads the balance riding along on each scan response."""
     user_id = identity["id"]
     await _ensure_provisioned(user_id)
     return {"balance": await run_in_threadpool(get_token_balance, user_id)}
@@ -61,6 +61,7 @@ async def balance(identity: dict = Depends(get_current_identity)):
 async def image_to_model(
     file: UploadFile = File(...),
     model: str = Form("free"),
+    language: str = Form(DEFAULT_LANGUAGE),  # target language for the translated result
     identity: dict = Depends(get_current_identity),  # gated: requires a valid Kratos session
 ):
     # Kratos owns identity; the wallet is keyed on the identity id.
@@ -76,11 +77,11 @@ async def image_to_model(
 
     try:
         if detect_main_area is None:
-            model_result = await run_in_threadpool(analyze_image, image_bytes, model)
+            model_result = await run_in_threadpool(analyze_image, image_bytes, model, language)
             bounding_box_result = {"corners": None, "detected_objects": []}
         else:
             model_result, bounding_box_result = await asyncio.gather(
-                run_in_threadpool(analyze_image, image_bytes, model),
+                run_in_threadpool(analyze_image, image_bytes, model, language),
                 run_in_threadpool(detect_main_area, image_bytes),
             )
     except Exception:
