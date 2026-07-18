@@ -13,46 +13,16 @@ API_KEY = os.getenv("OPENROUTER_API_KEY")
 if not API_KEY:
     raise RuntimeError("OPENROUTER_API_KEY is not set. Copy .env.example to .env and add your key.")
 
-# Inference server (OpenAI-compatible). Defaults to the self-hosted vLLM box; override via env.
-MODEL_SERVER_URL = os.getenv("MODEL_SERVER_URL", "http://89.169.96.173:8000")
-
-# Preferred model id per tier for a multi-model backend (e.g. OpenRouter). A single self-hosted
-# vLLM ignores this and uses whatever it serves — see _resolve_model.
 MODELS = {
     "fast": "openai/gpt-5.6-luna",
     "balanced": "google/gemini-3-flash-preview",
     "deep": "openai/gpt-5.6-sol",
-    "free": "google/gemma-4-26b-a4b-it:free"
+    "free": "RedHatAI/gemma-4-31B-it-FP8-block"
 }
-
-_served_single_model = None
-
-
-def _resolve_model(tier):
-    """Choose the `model` value to send to the inference server.
-
-    A self-hosted vLLM serves exactly ONE model and rejects any other `model` value with a 404, so
-    when the backend exposes a single model we send that exact id (whatever checkpoint is loaded).
-    When it serves many (OpenRouter-style), we honor the tier -> model mapping instead.
-    """
-    global _served_single_model
-    if _served_single_model:
-        return _served_single_model
-    fallback = MODELS.get(tier, tier)
-    try:
-        resp = requests.get(f"{MODEL_SERVER_URL}/v1/models", timeout=10)
-        resp.raise_for_status()
-        served = resp.json().get("data", [])
-    except (requests.RequestException, ValueError):
-        return fallback
-    if len(served) == 1:
-        _served_single_model = served[0]["id"]
-        return _served_single_model
-    return fallback
 
 
 def analyze_image(image_bytes, model="balanced"):
-    selected_model = _resolve_model(model)
+    selected_model = MODELS.get(model)
 
     processed_image = image_preprocessing(image_bytes)
     image_b64 = base64.b64encode(processed_image).decode("utf-8")
@@ -86,15 +56,27 @@ def analyze_image(image_bytes, model="balanced"):
         ]
     }
 
-    response = requests.post(
-        f"{MODEL_SERVER_URL}/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json"
-        },
-        json=payload,
-        timeout=120
-    )
+    if model == "free":
+        response = requests.post(
+            "http://89.169.96.173:8000/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json=payload,
+            timeout=120
+        )
+    else:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json=payload,
+            timeout=120
+        )
+
 
     response.raise_for_status()
 
