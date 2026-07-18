@@ -17,6 +17,22 @@ except Exception:
 app = FastAPI()
 
 
+def safe_related_search(image_bytes):
+    try:
+        return search_related_content(
+            image_bytes,
+            4,
+        )
+
+    except Exception as error:
+        print(f"Web search error: {error}")
+
+        return {
+            "images": [],
+            "links": [],
+        }
+
+
 @app.post("/image_to_model")
 async def image_to_model(
     file: UploadFile = File(...),
@@ -26,80 +42,52 @@ async def image_to_model(
     request_start = time.perf_counter()
     image_bytes = await file.read()
 
-    model_task = asyncio.create_task(
-        run_in_threadpool(
-            analyze_image,
-            image_bytes,
-            model,
-        )
-    )
-
-    search_task = None
-
     if detect_main_area is None:
+        model_result, related_content = await asyncio.gather(
+            run_in_threadpool(
+                analyze_image,
+                image_bytes,
+                model,
+            ),
+            run_in_threadpool(
+                safe_related_search,
+                image_bytes,
+            ),
+        )
+
         bounding_box_result = {
             "corners": None,
             "detected_objects": [],
         }
 
     else:
-        bounding_box_task = asyncio.create_task(
+        (
+            model_result,
+            bounding_box_result,
+            related_content,
+        ) = await asyncio.gather(
+            run_in_threadpool(
+                analyze_image,
+                image_bytes,
+                model,
+            ),
             run_in_threadpool(
                 detect_main_area,
                 image_bytes,
-            )
-        )
-
-        bounding_box_result = await bounding_box_task
-
-        detected_objects = list(
-            dict.fromkeys(
-                bounding_box_result["detected_objects"]
-            )
-        )
-
-        if detected_objects:
-            search_query = " ".join(
-                detected_objects[:4]
-            )
-
-            search_task = asyncio.create_task(
-                run_in_threadpool(
-                    search_related_content,
-                    search_query,
-                    4,
-                )
-            )
-
-    model_result = await model_task
-
-    if search_task is None:
-        search_query = model_result["heading"]
-
-        search_task = asyncio.create_task(
+            ),
             run_in_threadpool(
-                search_related_content,
-                search_query,
-                4,
-            )
+                safe_related_search,
+                image_bytes,
+            ),
         )
 
-    try:
-        related_content = await search_task
-
-    except Exception as error:
-        print(f"Web search error: {error}")
-
-        related_content = {
-            "images": [],
-            "links": [],
-        }
-
-    total_time = time.perf_counter() - request_start
+    processing_time = (
+        time.perf_counter() - request_start
+    )
 
     print(
-        f"Image analysis and web search completed "
-        f"in {total_time:.2f} seconds."
+        "Image analysis, bounding box and web search "
+        f"completed in {processing_time:.2f} seconds."
     )
 
     return {
@@ -107,8 +95,13 @@ async def image_to_model(
         "Body": model_result["body"],
         "BoundingBox": bounding_box_result["corners"],
         "DetectedObjects": bounding_box_result["detected_objects"],
-        "SearchQuery": search_query,
+        "SearchQuery": (
+            "Generated directly from the uploaded image"
+        ),
         "RelatedImages": related_content["images"],
         "RelatedLinks": related_content["links"],
-        "ProcessingTime": round(total_time, 2),
+        "ProcessingTime": round(
+            processing_time,
+            2,
+        ),
     }

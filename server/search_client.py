@@ -3,6 +3,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
+import base64
 
 import requests
 from dotenv import load_dotenv
@@ -177,19 +178,38 @@ def extract_citations(message):
     return citations
 
 
-def search_related_content(query, count=4):
+def search_related_content(image_bytes, count=4):
+    image_b64 = base64.b64encode(
+        image_bytes
+    ).decode("utf-8")
+
     payload = {
         "model": SEARCH_MODEL,
         "messages": [
             {
                 "role": "user",
-                "content": (
-                    "Search the web for useful pages closely related "
-                    f"to this visual subject: {query}. "
-                    f"Find up to {count} relevant results. "
-                    "Prefer trustworthy and informative sources. "
-                    "Cite every page you find."
-                ),
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Analyze the uploaded image and search "
+                            "the web for useful pages closely related "
+                            "to its main visual subject. "
+                            f"Find up to {count} relevant results. "
+                            "Prefer trustworthy and informative "
+                            "sources and cite every result."
+                        ),
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": (
+                                "data:image/jpeg;base64,"
+                                + image_b64
+                            )
+                        },
+                    },
+                ],
             }
         ],
         "tools": [
@@ -198,6 +218,7 @@ def search_related_content(query, count=4):
                 "parameters": {
                     "engine": "exa",
                     "max_results": count,
+                    "max_total_results": count,
                 },
             }
         ],
@@ -230,11 +251,16 @@ def search_related_content(query, count=4):
             "links": [],
         }
 
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    with ThreadPoolExecutor(
+        max_workers=count
+    ) as executor:
         preview_images = list(
             executor.map(
                 get_preview_image,
-                [citation["url"] for citation in citations],
+                [
+                    citation["url"]
+                    for citation in citations
+                ],
             )
         )
 
