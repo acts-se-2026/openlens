@@ -29,7 +29,7 @@ STARTING_TOKENS = int(os.getenv("STARTING_TOKENS", "100"))
 
 # Wallet cost per scan tier. `free` is free; paid tiers are metered.
 # Unknown tiers fall back to DEFAULT_COST so a new tier can't accidentally be free.
-MODEL_COSTS = {"free": 0, "fast": 1, "deep": 3}
+MODEL_COSTS = {"free": 1, "fast": 3, "deep": 5}
 DEFAULT_COST = 1
 
 # Default language if the client doesn't specify one.
