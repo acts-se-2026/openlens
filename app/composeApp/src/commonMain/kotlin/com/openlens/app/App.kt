@@ -31,6 +31,7 @@ import com.openlens.app.auth.rememberTokenStorage
 import com.openlens.app.auth.rememberUrlOpener
 import com.openlens.app.camera.CameraPreview
 import com.openlens.app.camera.rememberCameraController
+import com.openlens.app.scan.OutOfTokensException
 import com.openlens.app.scan.ScanMode
 import com.openlens.app.scan.ScanResult
 import com.openlens.app.ui.CaptureScreen
@@ -156,6 +157,13 @@ fun App() {
                         LaunchedEffect(current) {
                             val result = try {
                                 repository.identify(current.bytes, current.model)
+                            } catch (e: OutOfTokensException) {
+                                // Only Fast/Deep can hit this — Free costs nothing. Point them at Free.
+                                ScanResult(
+                                    label = "Out of tokens",
+                                    detail = "You've used up your tokens for Fast and Deep scans. " +
+                                        "Switch to Free to keep scanning.",
+                                )
                             } catch (e: Exception) {
                                 // Show the failure on the result sheet instead of crashing the app.
                                 ScanResult(

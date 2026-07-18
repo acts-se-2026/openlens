@@ -8,8 +8,10 @@ import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -35,7 +37,7 @@ class RemoteScanRepository(
     )
 
     override suspend fun identify(image: ByteArray, model: ScanMode): ScanResult {
-        val response: ScanResponse = client.post("$baseUrl/image_to_model") {
+        val response: HttpResponse = client.post("$baseUrl/image_to_model") {
             setBody(
                 MultiPartFormDataContent(
                     formData {
@@ -53,8 +55,12 @@ class RemoteScanRepository(
                     },
                 ),
             )
-        }.body()
-        return ScanResult(label = response.heading, detail = response.body)
+        }
+        // Empty wallet for a paid tier: surface a typed error the UI can explain, instead of letting
+        // .body() choke trying to parse the {"detail": ...} error payload as a ScanResponse.
+        if (response.status == HttpStatusCode.PaymentRequired) throw OutOfTokensException()
+        val parsed: ScanResponse = response.body()
+        return ScanResult(label = parsed.heading, detail = parsed.body)
     }
 }
 
