@@ -15,6 +15,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentLength
 import io.ktor.http.encodeURLParameter
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
@@ -212,7 +213,12 @@ class RemoteScanRepository(
     // OpenLens bearer to the third-party host serving the image.
     override suspend fun loadImageBytes(url: String): ByteArray? = runCatching {
         val response = imageFetchClient.get(url)
-        if (response.status.isSuccess()) response.body<ByteArray>() else null
+        if (!response.status.isSuccess()) return@runCatching null
+        // Skip a pathologically large image before buffering it — related thumbnails are tiny, and the
+        // decode step is already bounded, but this stops a rogue URL from OOMing us during the download.
+        val declaredLength = response.contentLength()
+        if (declaredLength != null && declaredLength > MAX_IMAGE_BYTES) return@runCatching null
+        response.body<ByteArray>().takeIf { it.size <= MAX_IMAGE_BYTES }
     }.getOrNull()
 }
 
@@ -233,6 +239,9 @@ private val imageFetchClient: HttpClient by lazy {
 }
 
 private const val MAX_RELATED_IMAGES = 8
+
+// Hard ceiling on a single related-image download, so one oversized URL can't exhaust the heap.
+private const val MAX_IMAGE_BYTES = 10L * 1024 * 1024
 
 // A desktop browser UA — DuckDuckGo serves the token page + i.js JSON we parse to a browser client.
 private const val DDG_USER_AGENT =

@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openlens.app.scan.RelatedImage
 import com.openlens.app.ui.theme.OpenLensColors
-import com.openlens.app.util.decodeImageBitmap
+import com.openlens.app.util.decodeImageBitmapSampled
 
 /** Lifecycle of the lazily-fetched similar-images grid. [Ready] with an empty list = "none found". */
 sealed interface SimilarImagesState {
@@ -46,6 +46,10 @@ sealed interface SimilarImagesState {
 private val GRID_SPACING = 10.dp
 private val CORNER = 14.dp
 private const val PLACEHOLDER_ASPECT = 1f
+
+// Tiles render at roughly half the sheet width; decoding to at most this edge keeps each bitmap small
+// (≈a few MB max) so ~8 concurrent thumbnails can't blow the heap on a big source image.
+private const val THUMBNAIL_MAX_DIMENSION_PX = 1024
 
 /**
  * "Similar images" section for the detail card: a two-column masonry of thumbnails. It lays out inline
@@ -120,7 +124,7 @@ private fun SimilarImageTile(
 
     LaunchedEffect(image.imageUrl) {
         val bytes = loadImage(image.imageUrl)
-        val decoded = bytes?.let { runCatching { decodeImageBitmap(it) }.getOrNull() }
+        val decoded = bytes?.let { decodeImageBitmapSampled(it, THUMBNAIL_MAX_DIMENSION_PX) }
         if (decoded == null) failed = true else bitmap = decoded
     }
 
