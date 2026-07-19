@@ -1,16 +1,21 @@
 package com.openlens.app.ui
 
+import androidx.compose.animation.core.animate
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -23,10 +28,16 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableFloatState
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -36,10 +47,12 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openlens.app.scan.ScanResult
 import com.openlens.app.ui.theme.OpenLensColors
+import kotlin.math.abs
 
 /**
  * Floating pill (caller sizes it to ~3/4 width). Two calm zones: the answer line — tap anywhere on it
@@ -141,10 +154,11 @@ fun RetakeButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 /**
- * Full reading card: heading + ✕, the description, and the similar-images masonry. The whole card is a
- * single vertical scroll — heading, text, and images move together — capped at a fraction of the
- * screen so tall content scrolls inside the sheet instead of sliding off the top. The scrim +
- * open/close animation are owned by the caller.
+ * Full reading card, presented as a draggable bottom sheet. It opens at a "peek" height ([PEEK_FRACTION]
+ * of the screen) showing the heading and the top of the description; dragging the grab handle up — or
+ * simply swiping up on the body — grows it toward [EXPANDED_FRACTION] and reveals the similar-images
+ * masonry, after which the body scrolls normally. A downward swipe/drag collapses it, and past a small
+ * threshold dismisses it. The scrim + slide-in/out are owned by the caller.
  */
 @Composable
 fun ResultDetailCard(
@@ -154,58 +168,103 @@ fun ResultDetailCard(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        color = OpenLensColors.Surface,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        shadowElevation = 12.dp,
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = {},
-            ),
-    ) {
-        BoxWithConstraints {
-            val maxCardHeight = maxHeight * 0.85f
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = maxCardHeight)
-                    .verticalScroll(rememberScrollState())
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(start = 24.dp, top = 16.dp, end = 14.dp, bottom = 22.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = result.label,
-                        color = OpenLensColors.TextHi,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Box(
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .clickable(onClick = onClose)
-                            .padding(10.dp),
-                    ) {
-                        Text("✕", color = OpenLensColors.TextLo, fontSize = 18.sp)
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val density = LocalDensity.current
+        val peekPx = with(density) { (maxHeight * PEEK_FRACTION).toPx() }
+        val expandedPx = with(density) { (maxHeight * EXPANDED_FRACTION).toPx() }
+        val flingThresholdPx = with(density) { 420.dp.toPx() }
+        // Live sheet height in px; the grab handle and the body's nested scroll both write it, and it
+        // animates to the nearer anchor (peek / expanded) when a gesture ends.
+        val heightPx = remember { mutableFloatStateOf(peekPx) }
+        val handler = remember(peekPx, expandedPx) {
+            SheetDragHandler(peekPx, expandedPx, heightPx, flingThresholdPx)
+        }
+        handler.onClose = onClose
+        val heightDp = with(density) { heightPx.floatValue.toDp() }
+
+        Surface(
+            color = OpenLensColors.Surface,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            shadowElevation = 12.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(heightDp)
+                // Swallow taps on the card so they don't fall through to the dismiss scrim.
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {},
+                ),
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Grab handle — draggable to grow/shrink the sheet directly.
+                DragHandle(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .draggable(
+                            orientation = Orientation.Vertical,
+                            state = rememberDraggableState { delta -> handler.onHandleDrag(delta) },
+                            onDragStopped = { velocity -> handler.onHandleDragStopped(velocity) },
+                        ),
+                )
+                // Body: swiping up here first expands the sheet (via [handler]'s nested scroll), then
+                // scrolls the content once the sheet is fully open.
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .nestedScroll(handler)
+                        .verticalScroll(rememberScrollState())
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(start = 24.dp, top = 2.dp, end = 14.dp, bottom = 22.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = result.label,
+                            color = OpenLensColors.TextHi,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .clickable(onClick = onClose)
+                                .padding(10.dp),
+                        ) {
+                            Text("✕", color = OpenLensColors.TextLo, fontSize = 18.sp)
+                        }
                     }
+                    Text(
+                        text = result.detail,
+                        color = OpenLensColors.TextLo,
+                        fontSize = 15.sp,
+                        modifier = Modifier.padding(top = 12.dp, end = 10.dp),
+                    )
+                    SimilarImagesSection(
+                        state = similarState,
+                        loadImage = loadImage,
+                        modifier = Modifier.padding(top = 20.dp, end = 10.dp),
+                    )
                 }
-                Text(
-                    text = result.detail,
-                    color = OpenLensColors.TextLo,
-                    fontSize = 15.sp,
-                    modifier = Modifier.padding(top = 12.dp, end = 10.dp),
-                )
-                SimilarImagesSection(
-                    state = similarState,
-                    loadImage = loadImage,
-                    modifier = Modifier.padding(top = 20.dp, end = 10.dp),
-                )
             }
         }
+    }
+}
+
+/** The little rounded "grabber" at the top of the sheet — the drag affordance (and drag surface). */
+@Composable
+private fun DragHandle(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.padding(top = 12.dp, bottom = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 36.dp, height = 4.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(OpenLensColors.TextLo.copy(alpha = 0.4f)),
+        )
     }
 }
 
@@ -270,3 +329,92 @@ private fun ChevronDown(color: Color, modifier: Modifier = Modifier) {
         drawLine(color, Offset(size.width * 0.88f, size.height * 0.28f), Offset(midX, size.height * 0.78f), s, StrokeCap.Round)
     }
 }
+
+/**
+ * Sizes the [ResultDetailCard] between its "peek" and "expanded" anchors. It doubles as the body's
+ * [NestedScrollConnection] (swipe up grows the sheet before the content scrolls; swipe down at the top
+ * shrinks it) and backs the grab handle's drag. When a gesture ends the sheet settles to the nearer
+ * anchor — or, if it's been pulled down far enough, closes via [onClose].
+ */
+private class SheetDragHandler(
+    private val peekPx: Float,
+    private val expandedPx: Float,
+    private val height: MutableFloatState,
+    private val flingThresholdPx: Float,
+) : NestedScrollConnection {
+    // Reassigned each recomposition so a stale close callback is never held.
+    var onClose: () -> Unit = {}
+
+    // Released below [dismissPx] ⇒ dismiss; [minPx] is the hard floor a downward drag can reach.
+    private val dismissPx = peekPx * 0.55f
+    private val minPx = peekPx * 0.35f
+
+    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+        val dy = available.y
+        // Finger up (dy < 0) and not fully open: grow the sheet, consuming that much of the scroll.
+        if (dy < 0f && height.floatValue < expandedPx) {
+            val target = (height.floatValue - dy).coerceAtMost(expandedPx)
+            val consumed = target - height.floatValue
+            height.floatValue = target
+            return Offset(0f, -consumed)
+        }
+        return Offset.Zero
+    }
+
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+        val dy = available.y
+        // Finger down with scroll left over (content already at its top): shrink the sheet.
+        if (dy > 0f && height.floatValue > minPx) {
+            val target = (height.floatValue - dy).coerceAtLeast(minPx)
+            val used = height.floatValue - target
+            height.floatValue = target
+            return Offset(0f, used)
+        }
+        return Offset.Zero
+    }
+
+    override suspend fun onPreFling(available: Velocity): Velocity {
+        // A fling begun while the sheet was mid-drag settles the sheet; once fully expanded the fling
+        // belongs to the content instead.
+        if (height.floatValue < expandedPx) {
+            settle(available.y)
+            return available
+        }
+        return Velocity.Zero
+    }
+
+    fun onHandleDrag(delta: Float) {
+        height.floatValue = (height.floatValue - delta).coerceIn(minPx, expandedPx)
+    }
+
+    suspend fun onHandleDragStopped(velocity: Float) = settle(velocity)
+
+    private suspend fun settle(velocity: Float) {
+        val mid = (peekPx + expandedPx) / 2f
+        val strong = abs(velocity) > flingThresholdPx
+        // velocity > 0 is a downward gesture, < 0 upward.
+        val dismiss = when {
+            strong && velocity > 0f -> height.floatValue <= mid
+            strong && velocity < 0f -> false
+            else -> height.floatValue < dismissPx
+        }
+        if (dismiss) {
+            onClose()
+            return
+        }
+        val target = when {
+            strong && velocity < 0f -> expandedPx
+            strong && velocity > 0f -> peekPx
+            height.floatValue < mid -> peekPx
+            else -> expandedPx
+        }
+        animate(height.floatValue, target, initialVelocity = velocity) { value, _ ->
+            height.floatValue = value
+        }
+    }
+}
+
+// The sheet opens at ~this fraction of the screen (a comfortable third-and-a-bit) and grows to this
+// fraction when the user drags it up.
+private const val PEEK_FRACTION = 0.4f
+private const val EXPANDED_FRACTION = 0.9f
