@@ -28,6 +28,23 @@ actual fun decodeImageBitmap(bytes: ByteArray): ImageBitmap {
     return rotated.asImageBitmap()
 }
 
+actual fun decodeImageBitmapSampled(bytes: ByteArray, maxDimensionPx: Int): ImageBitmap? = try {
+    // First pass reads only the dimensions (no pixels allocated) to pick a power-of-two downsample.
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    val longEdge = maxOf(bounds.outWidth, bounds.outHeight)
+
+    val options = BitmapFactory.Options().apply {
+        var sample = 1
+        while (longEdge > 0 && longEdge / (sample * 2) >= maxDimensionPx) sample *= 2
+        inSampleSize = sample
+    }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
+} catch (_: Throwable) {
+    // Throwable, not Exception: a full-res decode can throw OutOfMemoryError, which we must not crash on.
+    null
+}
+
 private fun readExifOrientation(bytes: ByteArray): Int = try {
     ByteArrayInputStream(bytes).use { stream ->
         ExifInterface(stream).getAttributeInt(

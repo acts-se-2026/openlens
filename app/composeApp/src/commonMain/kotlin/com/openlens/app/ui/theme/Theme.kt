@@ -14,6 +14,10 @@ object OpenLensColors {
     val OnAccent = Color(0xFF0E0E11) // dark content on the near-white accent
     val TextHi = Color(0xFFF5F5F7)
     val TextLo = Color(0xFF9A9AA2)
+    val Coin = Color(0xFFE8B24A)          // warm minted gold — paid coin face
+    val CoinHi = Color(0xFFF7D27E)        // lighter gold — paid coin sheen / rim / number
+    val CoinMutedFace = Color(0xFFAEAEB8) // silver face for the free (0-cost) coin
+    val CoinMutedHi = Color(0xFFE6E6EC)   // bright silver — free coin sheen / free "0" number
 }
 
 private val colorScheme = darkColorScheme(
