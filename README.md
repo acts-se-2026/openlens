@@ -37,5 +37,3 @@ It was built as an **educational project** during the [**ACTS 2026.2**](https://
 - **`server/`** — FastAPI backend (detection, cropping, model calls, related search, auth).
 - **`Model/`** — prompt engineering and model-evaluation results.
 - **`BoundingBox/`** — object-detection experiments.
-
----
